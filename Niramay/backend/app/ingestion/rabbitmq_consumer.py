@@ -136,15 +136,39 @@ def _on_message(channel, method_frame, header_frame, body):
         if _log_count_since_stage_update >= _STAGE_UPDATE_INTERVAL:
             _log_count_since_stage_update = 0
             try:
-                r.set(
-                    settings.PIPELINE_STAGE_KEY,
-                    json.dumps({
-                        "stage": "stage_1_complete",
-                        "timestamp": datetime.now(
-                            timezone.utc).isoformat(),
-                        "message": "Log ingested and normalized"
-                    })
-                )
+                # Guard: only write stage_1_complete if pipeline
+                # is idle or still at stage_1. Never overwrite
+                # later stages (detection, healing, verification).
+                _safe_to_write = True
+                try:
+                    _current_raw = r.get(settings.PIPELINE_STAGE_KEY)
+                    if _current_raw:
+                        _current_stage = json.loads(
+                            _current_raw
+                        ).get("stage")
+                        _safe_to_write = _current_stage in (
+                            None, "idle", "unknown",
+                            "stage_1_complete",
+                        )
+                except Exception:
+                    pass  # If check fails, allow write
+
+                if _safe_to_write:
+                    stage_val = "stage_1_complete"
+                    msg_val = "Log ingested and normalized"
+                    r.set(
+                        settings.PIPELINE_STAGE_KEY,
+                        json.dumps({
+                            "stage": stage_val,
+                            "timestamp": datetime.now(
+                                timezone.utc).isoformat(),
+                            "message": msg_val
+                        })
+                    )
+                    from app.core.redis_client import push_pipeline_event
+                    push_pipeline_event(
+                        "ingestion_complete", stage_val, msg_val
+                    )
             except Exception:
                 pass  # Never block pipeline for UI updates
 
@@ -294,6 +318,7 @@ def stop_rabbitmq_consumer():
         with _consumer_lock:
             _consumer_state["running"] = False
             _consumer_state["connected"] = False
+        _reset_pipeline_stage_to_idle()
         return
 
     _stop_event.set()
@@ -309,4 +334,23 @@ def stop_rabbitmq_consumer():
     _consumer_thread = None
     _connection_ref = None
 
+    _reset_pipeline_stage_to_idle()
     logger.info("RabbitMQ consumer stopped")
+
+
+def _reset_pipeline_stage_to_idle():
+    """Reset the pipeline stage Redis key to idle after consumer stops."""
+    try:
+        from app.core.config import settings
+        r = get_sync_redis()
+        import json
+        r.set(
+            settings.PIPELINE_STAGE_KEY,
+            json.dumps({
+                "stage": "idle",
+                "message": "Consumer stopped — waiting for activity",
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+            })
+        )
+    except Exception:
+        pass

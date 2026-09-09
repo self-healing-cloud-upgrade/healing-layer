@@ -44,7 +44,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
   const addToast = useCallback((message: string, kind: ToastKind = 'info') => {
     const id = `${Date.now()}-${Math.random()}`;
     setToasts(prev => [...prev, { id, message, kind }]);
-    setTimeout(() => setToasts(prev => prev.filter(t => t.id !== id)), 4000);
+    setTimeout(() => setToasts(prev => prev.filter(t => t.id !== id)), 7500);
   }, []);
 
   const removeToast = useCallback((id: string) => {
@@ -63,12 +63,13 @@ export function ToastProvider({ children }: { children: ReactNode }) {
         'aria-label': 'Notifications',
         style: {
           position: 'fixed',
-          bottom: 24,
-          right: 24,
+          top: 80,
+          right: 20,
           zIndex: 9999,
           display: 'flex',
           flexDirection: 'column',
-          gap: 8,
+          alignItems: 'flex-end',
+          gap: 10,
           pointerEvents: 'none',
         },
       },
@@ -80,22 +81,23 @@ export function ToastProvider({ children }: { children: ReactNode }) {
             motion.div,
             {
               key: t.id,
-              initial: { opacity: 0, y: 20, scale: 0.95 },
-              animate: { opacity: 1, y: 0, scale: 1 },
-              exit:    { opacity: 0, y: 10, scale: 0.95 },
+              initial: { opacity: 0, x: 40, scale: 0.95 },
+              animate: { opacity: 1, x: 0, scale: 1 },
+              exit:    { opacity: 0, x: 20, scale: 0.95 },
               transition: { duration: 0.22, ease: [0.16, 1, 0.3, 1] },
               style: {
                 display: 'flex',
                 alignItems: 'center',
-                gap: 10,
+                gap: 12,
                 background: 'var(--color-bg-secondary)',
                 border: `1px solid ${KIND_STYLES[t.kind].border}44`,
-                borderLeft: `3px solid ${KIND_STYLES[t.kind].border}`,
+                borderLeft: `4px solid ${KIND_STYLES[t.kind].border}`,
                 borderRadius: 'var(--radius-lg)',
-                padding: '10px 14px',
+                padding: '14px 24px',
                 backdropFilter: 'blur(12px)',
-                boxShadow: '0 4px 24px rgba(0,0,0,0.2)',
-                maxWidth: 360,
+                boxShadow: '0 10px 30px rgba(0,0,0,0.3)',
+                maxWidth: 480,
+                minWidth: 280,
                 pointerEvents: 'auto',
                 cursor: 'pointer',
               },
@@ -103,13 +105,14 @@ export function ToastProvider({ children }: { children: ReactNode }) {
             },
             createElement('span', {
               style: {
-                width: 6, height: 6, borderRadius: '50%', flexShrink: 0,
+                width: 10, height: 10, borderRadius: '50%', flexShrink: 0,
                 background: KIND_STYLES[t.kind].dot,
               },
             }),
             createElement('span', {
               style: {
-                fontSize: 'var(--text-sm)',
+                fontSize: 'var(--text-md)',
+                fontWeight: 500,
                 color: 'var(--color-text-primary)',
                 lineHeight: 'var(--leading-normal)',
               },

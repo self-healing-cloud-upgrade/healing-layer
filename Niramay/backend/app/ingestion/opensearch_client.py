@@ -518,6 +518,37 @@ class OpenSearchWriter:
             )
             return []
 
+    def get_healed_reports(self, limit: int = 50) -> List[Dict]:
+        """Fetch the most recent healed reports from crave-healed-reports."""
+        query = {
+            "query": {"match_all": {}},
+            "sort": [{"healed_at": {"order": "desc"}}]
+        }
+        return self._search(
+            settings.OPENSEARCH_INDEX_HEALED, query, size=limit
+        )
+
+    def get_anomaly_records(
+        self, limit: int = 50, severity: Optional[str] = None
+    ) -> List[Dict]:
+        """
+        Fetch anomaly records from crave-anomaly-records.
+        Optionally filter by severity.
+        """
+        if severity:
+            query: Dict[str, Any] = {
+                "query": {"term": {"severity": severity}},
+                "sort": [{"timestamp": {"order": "desc"}}]
+            }
+        else:
+            query = {
+                "query": {"match_all": {}},
+                "sort": [{"timestamp": {"order": "desc"}}]
+            }
+        return self._search(
+            settings.OPENSEARCH_INDEX_ANOMALIES, query, size=limit
+        )
+
 
 # Singleton instance
 opensearch_writer = OpenSearchWriter()

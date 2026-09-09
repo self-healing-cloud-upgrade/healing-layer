@@ -6,6 +6,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import Navbar from '../components/layout/Navbar';
+import PipelineProgressBar from '../components/PipelineProgressBar';
 import { useNiramayData } from '../hooks/useNiramayData';
 import { useTheme, statusDotClass, timeAgo, createRipple } from '../designSystem';
 
@@ -24,7 +25,7 @@ function MetricsBar({ metrics, isLive, setIsLive, lastRefresh, fetchData }: {
   const items = [
     { label: 'Requests', value: metrics.totalRequests, color: 'var(--color-text-primary)' },
     { label: 'Success', value: `${metrics.successRate}%`, color: 'var(--color-status-success)' },
-    { label: 'Latency', value: `${metrics.avgLatency}ms`, color: 'var(--color-text-primary)' },
+    { label: 'Latency', value: `${metrics.avgLatency}`, color: 'var(--color-text-primary)' },
     { label: 'Anomalies', value: metrics.activeAnomalies, color: metrics.activeAnomalies > 0 ? 'var(--color-status-warning)' : 'var(--color-text-primary)' },
     { label: 'Healed', value: metrics.totalHealed, color: metrics.totalHealed > 0 ? 'var(--color-status-success)' : 'var(--color-text-primary)' },
   ];
@@ -427,9 +428,29 @@ function DetectionEngine({ anomalies, stats }: { anomalies: any[], stats: any })
    STAGE 3: HEALING OUTPUT
    ═══════════════════════════════════════════════════════════════════ */
 
+/**
+ * True outcome of a healing action.
+ *
+ * verification_status is the definitive signal — it reflects what the
+ * verification worker observed after the settling window. An action can have
+ * status='failed' (the restart call itself failed) yet verification_status='HEALED'
+ * (system recovered anyway). We return 'pending' when the action failed but
+ * verification hasn't completed yet, to avoid showing "Failed" prematurely.
+ */
+function effectiveOutcome(a: { status?: string; verification_status?: string }): 'success' | 'failed' | 'pending' {
+  if (a.verification_status === 'HEALED' || a.verification_status === 'SUCCESS') return 'success';
+  if (a.verification_status === 'FAILED' || a.verification_status === 'ESCALATED') return 'failed';
+  if (a.status === 'success') return 'success';
+  // status='failed' with no verification_status = action failed but verification
+  // hasn't run yet — show as neutral "Verifying" to avoid premature failure display.
+  return 'pending';
+}
+
 function HealingOutput({ actions }: { actions: ReturnType<typeof useNiramayData>['healingActions'] }) {
   const { isDark } = useTheme();
   const seenRef = useRef<Set<string>>(new Set());
+  // Only show actual healing outcomes — filter out batched/suppressed/skipped records
+  const visibleActions = actions.filter(a => a.status === 'success' || a.status === 'failed');
   return (
     <div className="glow-card" style={{
       flex: 1,
@@ -459,8 +480,20 @@ function HealingOutput({ actions }: { actions: ReturnType<typeof useNiramayData>
             Autonomous Healing
           </span>
         </div>
-        {actions.length > 0 && (
-          <span className="badge badge-success" style={{ fontSize: 10 }}>{actions.length} healed</span>
+        {visibleActions.filter(a => effectiveOutcome(a) === 'success').length > 0 && (
+          <span className="badge badge-success" style={{ fontSize: 10 }}>
+            {visibleActions.filter(a => effectiveOutcome(a) === 'success').length} healed
+          </span>
+        )}
+        {visibleActions.filter(a => effectiveOutcome(a) === 'pending').length > 0 && (
+          <span className="badge badge-warning" style={{ fontSize: 10 }}>
+            {visibleActions.filter(a => effectiveOutcome(a) === 'pending').length} verifying
+          </span>
+        )}
+        {visibleActions.filter(a => effectiveOutcome(a) === 'failed').length > 0 && (
+          <span className="badge badge-error" style={{ fontSize: 10 }}>
+            {visibleActions.filter(a => effectiveOutcome(a) === 'failed').length} failed
+          </span>
         )}
       </div>
 
@@ -484,7 +517,7 @@ function HealingOutput({ actions }: { actions: ReturnType<typeof useNiramayData>
         maxHeight: 380,
       }}>
         <AnimatePresence initial={false}>
-          {actions.slice(0, 20).map((action, i) => {
+          {visibleActions.slice(0, 20).map((action, i) => {
             const hk = action.alert_id || `${action.timestamp}-${i}`;
             const isNew = !seenRef.current.has(hk);
             if (isNew) seenRef.current.add(hk);
@@ -503,28 +536,39 @@ function HealingOutput({ actions }: { actions: ReturnType<typeof useNiramayData>
                 padding: 'var(--space-2)',
               }}
             >
-              {/* Icon */}
-              <div style={{
-                width: 26,
-                height: 26,
-                borderRadius: 'var(--radius-md)',
-                background: action.status === 'success' ? 'rgba(0, 255, 136, 0.08)' : 'rgba(255, 140, 66, 0.08)',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                flexShrink: 0,
-              }}>
-                {action.healing_action === 'restart_service' ? (
-                  <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="var(--color-status-success)" strokeWidth="1.5" strokeLinecap="round">
-                    <path d="M1 8a7 7 0 0 1 13.2-3.2" /><path d="M15 8a7 7 0 0 1-13.2 3.2" />
-                    <polyline points="1,3 1,8 5,7" /><polyline points="15,13 15,8 11,9" />
-                  </svg>
-                ) : (
-                  <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="var(--color-status-success)" strokeWidth="1.5" strokeLinecap="round">
-                    <polyline points="1,1 1,6 6,6" /><path d="M1 6 C3 3, 6 1, 8 1 a7 7 0 1 1-5 12" />
-                  </svg>
-                )}
-              </div>
+              {/* Icon — driven by verification_status (ground truth), fallback to status */}
+              {(() => {
+                const outcome = effectiveOutcome(action);
+                const iconBg =
+                  outcome === 'success' ? 'rgba(0,255,136,0.08)' :
+                  outcome === 'pending' ? 'rgba(245,158,11,0.08)' :
+                  'rgba(255,60,60,0.08)';
+                return (
+                  <div style={{
+                    width: 26, height: 26,
+                    borderRadius: 'var(--radius-md)',
+                    background: iconBg,
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    flexShrink: 0,
+                  }}>
+                    {outcome === 'success' && (
+                      <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="var(--color-status-success)" strokeWidth="1.5" strokeLinecap="round">
+                        <path d="M4 8l3 3 5-6" /><circle cx="8" cy="8" r="6" />
+                      </svg>
+                    )}
+                    {outcome === 'pending' && (
+                      <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="var(--color-status-warning)" strokeWidth="1.5" strokeLinecap="round">
+                        <circle cx="8" cy="8" r="6" /><path d="M8 5v3.5l2 2" />
+                      </svg>
+                    )}
+                    {outcome === 'failed' && (
+                      <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="var(--color-status-error)" strokeWidth="1.5" strokeLinecap="round">
+                        <path d="M4 4l8 8M12 4l-8 8" /><circle cx="8" cy="8" r="6" />
+                      </svg>
+                    )}
+                  </div>
+                );
+              })()}
 
               {/* Content */}
               <div style={{ flex: 1, minWidth: 0 }}>
@@ -533,7 +577,6 @@ function HealingOutput({ actions }: { actions: ReturnType<typeof useNiramayData>
                   color: 'var(--color-text-primary)',
                   fontFamily: 'var(--font-mono)',
                 }}>
-                  <span style={{ color: 'var(--color-text-tertiary)' }}>Executing: </span>
                   {action.healing_action.replace(/_/g, ' ')}
                 </div>
                 <div className="reveal-on-hover" style={{
@@ -545,13 +588,18 @@ function HealingOutput({ actions }: { actions: ReturnType<typeof useNiramayData>
                 </div>
               </div>
 
-              {/* Status */}
-              <span className={`badge ${action.status === 'success' ? 'badge-success' : 'badge-warning'}`} style={{
-                fontSize: 9,
-                padding: '1px 8px',
-              }}>
-                {action.status === 'success' ? 'Healed' : action.status}
-              </span>
+              {/* Outcome badge — verification_status wins over raw status */}
+              {(() => {
+                const outcome = effectiveOutcome(action);
+                return (
+                  <span className={`badge ${outcome === 'success' ? 'badge-success' : outcome === 'pending' ? 'badge-warning' : 'badge-error'}`} style={{
+                    fontSize: 9,
+                    padding: '1px 8px',
+                  }}>
+                    {outcome === 'success' ? 'Healed' : outcome === 'pending' ? 'Verifying' : 'Failed'}
+                  </span>
+                );
+              })()}
             </motion.div>
             );
           })}
@@ -860,6 +908,16 @@ export default function LiveVisualizer() {
             lastRefresh={data.lastRefresh}
             fetchData={data.fetchData}
           />
+        </motion.div>
+
+        {/* Pipeline Stage Indicator — reused from Dashboard */}
+        <motion.div
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.5, delay: 0.15 }}
+          style={{ marginBottom: 'var(--space-6)' }}
+        >
+          <PipelineProgressBar />
         </motion.div>
 
         {/* Pipeline: 3 stages + connectors */}

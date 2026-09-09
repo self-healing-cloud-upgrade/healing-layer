@@ -159,7 +159,7 @@ export default function Navbar() {
           Live View
         </button>
 
-        {/* Theme toggle */}
+        {/* Theme toggle — simple icon */}
         <button
           onClick={toggleTheme}
           className="btn-icon"

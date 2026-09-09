@@ -123,9 +123,14 @@ def _flush_redis_data():
             "analyser:pending",
             "dispatcher:pending",
             "healing:actions",
+            "healing:pending_actions",
+            "healing:decisions",
+            "healing:mode",
             "escalation:alerts",
             "incident:reports",
+            "reports:list",
             "consumer:events",
+            "pipeline:events",
             settings.PIPELINE_STAGE_KEY,
         ]
         deleted = 0

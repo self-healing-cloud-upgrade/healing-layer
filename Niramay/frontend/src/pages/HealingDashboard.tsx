@@ -12,17 +12,16 @@ import axios from 'axios';
 import { useTheme, createRipple, type ObservationLog, type AnomalyLog, type HealingAction } from '../designSystem';
 import { useNiramayData, usePipelineStage, useConsumerControl, useHealingToggle } from '../hooks/useNiramayData';
 import StatCard from '../components/StatCard';
-import ThemeToggle from '../components/Toggle';
 import ObservationFeed from '../components/ObservationFeed';
 import DetectionAlerts from '../components/DetectionAlerts';
 import HealingActionsPanel from '../components/HealingActions';
 import { IncidentReportsPanel } from '../components/IncidentReportsPanel';
 import { SkeletonStatCard } from '../components/SkeletonBlock';
-import PipelineStageIndicator from '../components/PipelineStageIndicator';
 import EscalationEmailSettings from '../components/EscalationEmailSettings';
 import PipelineProgressBar from '../components/PipelineProgressBar';
 import LogsPanel from '../components/LogsPanel';
 import PipelineArtifactCards from '../components/PipelineArtifactCards';
+import ReportPortal from '../components/ReportPortal';
 import ManualHealingPanel from '../components/ManualHealingPanel';
 import OpenSearchSearchPanel from '../components/OpenSearchSearchPanel';
 
@@ -32,9 +31,12 @@ const API = '';
 
 type TriggerState = 'idle' | 'loading' | 'success' | 'error';
 
-export default function HealingDashboard() {
-  const { isDark } = useTheme();
+export default function HealingDashboard({ isActive = true }: { isActive?: boolean }) {
+  const { isDark, toggleTheme } = useTheme();
   const navigate = useNavigate();
+  // Stable ref so the scroll handler can check visibility without re-registration
+  const isActiveRef = useRef(isActive);
+  useEffect(() => { isActiveRef.current = isActive; }, [isActive]);
   const {
     logs,
     anomalies,
@@ -87,10 +89,11 @@ export default function HealingDashboard() {
   const [showBackToTop, setShowBackToTop] = useState(false);
   const heroRef = useRef<HTMLDivElement>(null);
 
-  // Scroll tracking
+  // Scroll tracking — skipped when this view is hidden behind display:none
   useEffect(() => {
     let ticking = false;
     const fn = () => {
+      if (!isActiveRef.current) return;
       if (ticking) return;
       ticking = true;
       requestAnimationFrame(() => {
@@ -98,11 +101,9 @@ export default function HealingDashboard() {
         setScrolled(y > 24);
         setShowBackToTop(y > 400);
 
-        // Progress
         const docH = document.documentElement.scrollHeight - window.innerHeight;
         setScrollProgress(docH > 0 ? (y / docH) * 100 : 0);
 
-        // Parallax on hero
         if (heroRef.current) {
           heroRef.current.style.transform = `translateY(${y * 0.3}px)`;
         }
@@ -113,6 +114,16 @@ export default function HealingDashboard() {
     window.addEventListener('scroll', fn, { passive: true });
     return () => window.removeEventListener('scroll', fn);
   }, []);
+
+  // Re-sync scroll state the moment this view becomes active again
+  useEffect(() => {
+    if (!isActive) return;
+    const y = window.scrollY;
+    setScrolled(y > 24);
+    setShowBackToTop(y > 400);
+    const docH = document.documentElement.scrollHeight - window.innerHeight;
+    setScrollProgress(docH > 0 ? (y / docH) * 100 : 0);
+  }, [isActive]);
 
   const scrollToTop = () => {
     window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -308,8 +319,23 @@ export default function HealingDashboard() {
             {lastRefresh.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
           </span>
 
-          {/* Theme toggle */}
-          <ThemeToggle />
+          {/* Theme toggle — simple icon */}
+          <button
+            onClick={toggleTheme}
+            className="btn-icon"
+            aria-label={isDark ? 'Switch to light mode' : 'Switch to dark mode'}
+          >
+            {isDark ? (
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round">
+                <circle cx="8" cy="8" r="3.5" />
+                <path d="M8 1v1.5M8 13.5V15M1 8h1.5M13.5 8H15M3.05 3.05l1.06 1.06M11.89 11.89l1.06 1.06M3.05 12.95l1.06-1.06M11.89 4.11l1.06-1.06" />
+              </svg>
+            ) : (
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round">
+                <path d="M13.5 8.5a5.5 5.5 0 0 1-6-6A5.5 5.5 0 1 0 13.5 8.5Z" />
+              </svg>
+            )}
+          </button>
         </div>
       </nav>
 
@@ -442,9 +468,6 @@ export default function HealingDashboard() {
         {/* ── Pipeline Progress Bar (Feature 4) ── */}
         <PipelineProgressBar />
 
-        {/* ── Pipeline Stage Indicator (legacy) ── */}
-        <PipelineStageIndicator />
-
         {/* ── Escalation Email Settings ── */}
         <EscalationEmailSettings />
 
@@ -515,6 +538,11 @@ export default function HealingDashboard() {
         {/* ── Pipeline Artifact Cards (Feature 2) ── */}
         <div style={{ marginTop: 'var(--space-6)' }}>
           <PipelineArtifactCards />
+        </div>
+
+        {/* ── Report Generation Portal (Section 1) ── */}
+        <div style={{ marginTop: 'var(--space-6)' }}>
+          <ReportPortal />
         </div>
 
         {/* ── Manual Healing Panel — slides in from right when mode = manual (Feature 6) ── */}
