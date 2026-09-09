@@ -265,10 +265,44 @@ python simulation/traffic_generator.py
 
 ### Run tests
 
+#### Backend (pytest)
 ```bash
 cd backend
+source .venv/bin/activate
 pytest tests/ -v
 ```
+
+#### Frontend (vitest)
+```bash
+cd frontend
+npm install
+npm run test
+```
+
+---
+
+## CI/CD Pipeline (Jenkins)
+
+The project includes a declarative `Jenkinsfile` at the root for automated integration and testing.
+
+### Local CI Execution
+You can simulate the Jenkins pipeline locally using the provided script:
+```bash
+./scripts/local_ci.sh
+```
+This script will:
+1. Run all backend unit tests.
+2. Run all frontend unit tests.
+3. Attempt a trial Docker build of both services.
+
+### Jenkins Setup
+To establish the pipeline in a Jenkins instance:
+1. Create a new **Pipeline** job.
+2. Set **Definition** to "Pipeline script from SCM".
+3. Point to this repository and specify the `healing-ui` branch.
+4. Ensure Jenkins has **Docker** and **Node.js** installed on the worker nodes.
+
+---
 
 ---
 

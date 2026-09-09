@@ -682,8 +682,8 @@ function CopilotPanel() {
                 </svg>
               </button>
             </div>
-
-            {/* Threat chips */}
+{/* 
+            Threat chips
             <div style={{
               display: 'flex',
               gap: 'var(--space-1)',
@@ -699,7 +699,7 @@ function CopilotPanel() {
                   {r.severity.toUpperCase()}: {r.title.split(' ').slice(0, 4).join(' ')}...
                 </span>
               ))}
-            </div>
+            </div> */}
 
             {/* Messages */}
             <div style={{

@@ -30,9 +30,14 @@ ESCALATION_KEY = "escalation:alerts"
 SETTLING_WINDOWS = {
     "restart_service": 45,
     "throttle_requests": 15,
-    "retry_request": 5,
-    "fallback_response": 2,
+    "flush_cache": 10,
+    "scale_up": 30,
+    "circuit_breaker": 20,
+    "rollback_deployment": 60,
+    "escalate_only": 0,
+    "none": 0,
 }
+DEFAULT_SETTLING_WINDOW = 15
 
 MAX_RETRY_ATTEMPTS = 3
 
@@ -88,7 +93,7 @@ async def verification_worker_loop():
 
                 # Check settling window
                 healing_action = action.get("healing_action", "unknown")
-                wait_seconds = SETTLING_WINDOWS.get(healing_action, 30)
+                wait_seconds = SETTLING_WINDOWS.get(healing_action, DEFAULT_SETTLING_WINDOW)
 
                 try:
                     action_time = datetime.fromisoformat(

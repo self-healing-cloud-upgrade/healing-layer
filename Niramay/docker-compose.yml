@@ -14,6 +14,8 @@ services:
       interval: 5s
       timeout: 5s
       retries: 10
+    networks:
+      - selfhealing-network
 
   # ── RabbitMQ (Stage 1 — log transport from Component C) ────────────
   rabbitmq:
@@ -33,6 +35,8 @@ services:
       interval: 10s
       timeout: 5s
       retries: 10
+    networks:
+      - selfhealing-network
 
   # ── OpenSearch (permanent storage) ─────────────────────────────────
   opensearch:
@@ -54,6 +58,8 @@ services:
       interval: 10s
       timeout: 5s
       retries: 10
+    networks:
+      - selfhealing-network
 
   # ── OpenSearch Dashboards (optional visualization) ─────────────────
   opensearch-dashboards:
@@ -68,6 +74,8 @@ services:
     depends_on:
       opensearch:
         condition: service_healthy
+    networks:
+      - selfhealing-network
 
   # ── FastAPI Backend ────────────────────────────────────────────────────
   backend:
@@ -110,6 +118,8 @@ services:
       timeout: 5s
       retries: 10
       start_period: 10s
+    networks:
+      - selfhealing-network
 
   # ── React Frontend ────────────────────────────────────────────────────
   frontend:
@@ -122,7 +132,7 @@ services:
       - "3000:3000"
     environment:
       CHOKIDAR_USEPOLLING: "true"
-      VITE_API_URL: "http://backend:8000"
+      VITE_API_URL: ""
     volumes:
       - ./frontend/src:/app/src
       - ./frontend/index.html:/app/index.html
@@ -133,9 +143,15 @@ services:
     depends_on:
       backend:
         condition: service_healthy
+    networks:
+      - selfhealing-network
 
 volumes:
   redis_data:
   rabbitmq_data:
   opensearch_data:
 
+networks:
+  selfhealing-network:
+    external: true
+    name: selfhealing-network

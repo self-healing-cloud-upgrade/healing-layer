@@ -135,16 +135,23 @@ class OpenSearchWriter:
             return self._client
 
         try:
+            # pool_maxsize=20 prevents "Connection pool is full,
+            # discarding connection" warnings under concurrent
+            # write load from multiple async workers.
             self._client = OpenSearch(
                 hosts=[{
                     "host": settings.OPENSEARCH_HOST,
                     "port": settings.OPENSEARCH_PORT,
                 }],
                 http_auth=(settings.OPENSEARCH_USER, settings.OPENSEARCH_PASSWORD),
+                pool_maxsize=20,
+                http_compress=True,
                 use_ssl=False,
                 verify_certs=False,
                 ssl_show_warn=False,
                 timeout=10,
+                max_retries=3,
+                retry_on_timeout=True,
             )
             info = self._client.info()
             self._connected = True
