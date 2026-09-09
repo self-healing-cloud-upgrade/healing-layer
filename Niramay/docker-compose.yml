@@ -69,7 +69,7 @@ services:
     ports:
       - "5601:5601"
     environment:
-      OPENSEARCH_HOSTS: '["http://opensearch:9200"]'
+      OPENSEARCH_HOSTS: '["http://niramay-opensearch:9200"]'
       DISABLE_SECURITY_DASHBOARDS_PLUGIN: "true"
     depends_on:
       opensearch:
@@ -86,18 +86,18 @@ services:
     restart: unless-stopped
     environment:
       DEBUG: "true"
-      REDIS_HOST: redis
+      REDIS_HOST: niramay-redis
       REDIS_PORT: "6379"
-      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_HOST: niramay-rabbitmq
       RABBITMQ_PORT: "5672"
       RABBITMQ_USER: guest
       RABBITMQ_PASSWORD: guest
       RABBITMQ_QUEUE: component-c-logs
-      OPENSEARCH_HOST: opensearch
+      OPENSEARCH_HOST: niramay-opensearch
       OPENSEARCH_PORT: "9200"
       OPENSEARCH_USER: admin
       OPENSEARCH_PASSWORD: admin
-      TRAFFIC_GENERATOR_ENABLED: "true"
+      TRAFFIC_GENERATOR_ENABLED: "false"
       TRAFFIC_GENERATOR_INTERVAL_MS: "2000"
       CORS_ORIGINS: '["http://localhost:3000","http://localhost:5173"]'
     ports:

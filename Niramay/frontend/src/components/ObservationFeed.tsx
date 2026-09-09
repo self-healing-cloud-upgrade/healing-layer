@@ -18,6 +18,9 @@ export default function ObservationFeed({ logs }: { logs: ObservationLog[] }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const chartRef = useRef<Chart | null>(null);
 
+  // Track which log IDs we've already rendered to avoid re-animating
+  const seenIdsRef = useRef<Set<string>>(new Set());
+
   const sparkData = useMemo(
     () => logs.slice(0, 20).reverse().map(l => l.response_time_ms),
     [logs]
@@ -146,16 +149,28 @@ export default function ObservationFeed({ logs }: { logs: ObservationLog[] }) {
       }}>
         {logs.length === 0 ? <EmptyState headline="Waiting for traffic" /> : (
           <AnimatePresence initial={false}>
-            {logs.map((log, i) => (
+            {logs.map((log, i) => {
+              const logKey = log.request_id || `${log.timestamp}-${i}`;
+              const isNew = !seenIdsRef.current.has(logKey);
+              if (isNew) seenIdsRef.current.add(logKey);
+              // Keep set bounded
+              if (seenIdsRef.current.size > 200) {
+                const iter = seenIdsRef.current.values();
+                for (let j = 0; j < 100; j++) iter.next();
+                const keep = new Set<string>();
+                for (const v of iter) keep.add(v);
+                seenIdsRef.current = keep;
+              }
+              return (
               <motion.div
-                key={log.request_id || `${log.timestamp}-${i}`}
-                initial={{ opacity: 0, y: 12 }}
+                key={logKey}
+                initial={isNew ? { opacity: 0, y: 12 } : false}
                 animate={{ opacity: 1, y: 0 }}
-                transition={{
+                transition={isNew ? {
                   duration: 0.3,
                   delay: Math.min(i * 0.03, 0.3),
                   ease: [0.16, 1, 0.3, 1],
-                }}
+                } : { duration: 0 }}
                 className="row-interactive"
                 style={{
                   display: 'flex',
@@ -220,7 +235,7 @@ export default function ObservationFeed({ logs }: { logs: ObservationLog[] }) {
                   {timeAgo(log.timestamp)}
                 </span>
               </motion.div>
-            ))}
+            )})}
           </AnimatePresence>
         )}
       </div>

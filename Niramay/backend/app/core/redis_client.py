@@ -25,11 +25,15 @@ def get_sync_redis() -> redis.Redis:
 
 
 async def get_async_redis() -> aioredis.Redis:
-    """Create an async Redis client."""
+    """Create an async Redis client with health checks to prevent stale connections."""
     return aioredis.Redis(
         host=settings.REDIS_HOST,
         port=settings.REDIS_PORT,
         decode_responses=True,
+        health_check_interval=30,
+        socket_connect_timeout=5,
+        socket_timeout=10,
+        retry_on_timeout=True,
     )
 
 

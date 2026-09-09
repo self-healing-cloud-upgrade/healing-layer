@@ -3,7 +3,7 @@
  * Shows the Input → Processing → Output pipeline in real-time.
  */
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import Navbar from '../components/layout/Navbar';
 import { useNiramayData } from '../hooks/useNiramayData';
@@ -126,6 +126,7 @@ function MetricsBar({ metrics, isLive, setIsLive, lastRefresh, fetchData }: {
 
 function ObservationStream({ logs }: { logs: ReturnType<typeof useNiramayData>['logs'] }) {
   const { isDark } = useTheme();
+  const seenRef = useRef<Set<string>>(new Set());
   return (
     <div className="glow-card" style={{
       flex: 1,
@@ -178,12 +179,17 @@ function ObservationStream({ logs }: { logs: ReturnType<typeof useNiramayData>['
         maxHeight: 380,
       }}>
         <AnimatePresence initial={false}>
-          {logs.slice(0, 25).map((log, i) => (
+          {logs.slice(0, 25).map((log, i) => {
+            const lk = log.request_id || `${log.timestamp}-${i}`;
+            const isNew = !seenRef.current.has(lk);
+            if (isNew) seenRef.current.add(lk);
+            if (seenRef.current.size > 100) seenRef.current = new Set(Array.from(seenRef.current).slice(-50));
+            return (
             <motion.div
-              key={log.request_id || `${log.timestamp}-${i}`}
-              initial={{ opacity: 0, x: -20 }}
+              key={lk}
+              initial={isNew ? { opacity: 0, x: -20 } : false}
               animate={{ opacity: 1, x: 0 }}
-              transition={{ duration: 0.25, delay: Math.min(i * 0.02, 0.2) }}
+              transition={isNew ? { duration: 0.25, delay: Math.min(i * 0.02, 0.2) } : { duration: 0 }}
               className="row-interactive"
               style={{
                 display: 'flex',
@@ -233,7 +239,8 @@ function ObservationStream({ logs }: { logs: ReturnType<typeof useNiramayData>['
                 {(log.response_time_ms ?? 0).toFixed(0)}ms
               </span>
             </motion.div>
-          ))}
+            );
+          })}
         </AnimatePresence>
       </div>
     </div>
@@ -247,6 +254,7 @@ function ObservationStream({ logs }: { logs: ReturnType<typeof useNiramayData>['
 function DetectionEngine({ anomalies, stats }: { anomalies: any[], stats: any }) {
   const { isDark } = useTheme();
   const hasAnomalies = anomalies.length > 0;
+  const seenRef = useRef<Set<string>>(new Set());
 
   return (
     <div className="glow-card" style={{
@@ -342,12 +350,17 @@ function DetectionEngine({ anomalies, stats }: { anomalies: any[], stats: any })
         padding: 'var(--space-2) var(--space-3)',
         maxHeight: 260,
       }}>
-        {anomalies.slice(0, 15).map((a, i) => (
+        {anomalies.slice(0, 15).map((a, i) => {
+          const ak = a.detection_id || `${a.timestamp}-${i}`;
+          const isNew = !seenRef.current.has(ak);
+          if (isNew) seenRef.current.add(ak);
+          if (seenRef.current.size > 100) seenRef.current = new Set(Array.from(seenRef.current).slice(-50));
+          return (
           <motion.div
-            key={`${a.timestamp}-${i}`}
-            initial={{ opacity: 0, y: 8 }}
+            key={ak}
+            initial={isNew ? { opacity: 0, y: 8 } : false}
             animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.25, delay: Math.min(i * 0.03, 0.3) }}
+            transition={isNew ? { duration: 0.25, delay: Math.min(i * 0.03, 0.3) } : { duration: 0 }}
             className="row-interactive"
             style={{
               padding: 'var(--space-2)',
@@ -395,7 +408,7 @@ function DetectionEngine({ anomalies, stats }: { anomalies: any[], stats: any })
                 paddingLeft: 'var(--space-4)',
                 flexWrap: 'wrap',
               }}>
-                {a.anomaly_reasons.map((r, ri) => (
+                {a.anomaly_reasons.map((r: string, ri: number) => (
                   <span key={ri} className="badge badge-neutral" style={{ fontSize: 9, padding: '0 6px' }}>
                     {r.replace(/_/g, ' ')}
                   </span>
@@ -403,7 +416,8 @@ function DetectionEngine({ anomalies, stats }: { anomalies: any[], stats: any })
               </div>
             )}
           </motion.div>
-        ))}
+          );
+        })}
       </div>
     </div>
   );
@@ -415,6 +429,7 @@ function DetectionEngine({ anomalies, stats }: { anomalies: any[], stats: any })
 
 function HealingOutput({ actions }: { actions: ReturnType<typeof useNiramayData>['healingActions'] }) {
   const { isDark } = useTheme();
+  const seenRef = useRef<Set<string>>(new Set());
   return (
     <div className="glow-card" style={{
       flex: 1,
@@ -469,12 +484,17 @@ function HealingOutput({ actions }: { actions: ReturnType<typeof useNiramayData>
         maxHeight: 380,
       }}>
         <AnimatePresence initial={false}>
-          {actions.slice(0, 20).map((action, i) => (
+          {actions.slice(0, 20).map((action, i) => {
+            const hk = action.alert_id || `${action.timestamp}-${i}`;
+            const isNew = !seenRef.current.has(hk);
+            if (isNew) seenRef.current.add(hk);
+            if (seenRef.current.size > 100) seenRef.current = new Set(Array.from(seenRef.current).slice(-50));
+            return (
             <motion.div
-              key={`${action.timestamp}-${i}`}
-              initial={{ opacity: 0, x: 20 }}
+              key={hk}
+              initial={isNew ? { opacity: 0, x: 20 } : false}
               animate={{ opacity: 1, x: 0 }}
-              transition={{ duration: 0.25, delay: Math.min(i * 0.03, 0.3) }}
+              transition={isNew ? { duration: 0.25, delay: Math.min(i * 0.03, 0.3) } : { duration: 0 }}
               className="row-interactive"
               style={{
                 display: 'flex',
@@ -533,7 +553,8 @@ function HealingOutput({ actions }: { actions: ReturnType<typeof useNiramayData>
                 {action.status === 'success' ? 'Healed' : action.status}
               </span>
             </motion.div>
-          ))}
+            );
+          })}
         </AnimatePresence>
       </div>
     </div>

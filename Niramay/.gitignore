@@ -95,3 +95,4 @@ data/
 verify_system.py
 .mypy_cache/
 .ruff_cache/
+.claude

@@ -1,0 +1,17 @@
+---
+# selfhealing namespace
+#
+# All Niramay + CRAVE K3s workloads run in this dedicated
+# namespace so healing RBAC can be scoped to it rather than
+# cluster-wide, and to keep them isolated from kube-system.
+#
+# Apply FIRST before any other manifest:
+#   kubectl apply -f k3s/namespace.yaml
+
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: selfhealing
+  labels:
+    app.kubernetes.io/managed-by: niramay
+    purpose: self-healing-demo

@@ -1,3 +1,8 @@
+# DEPRECATED: This file is superseded by
+# healing_action_executor/executor.py
+# Kept for reference only. Do not import from here.
+# Will be deleted in a future cleanup pass.
+
 """
 Healing Engine — Strategy Selection + Execution
 

@@ -1,8 +1,7 @@
 """
 Niramay — FastAPI Application Entry Point
 Standalone application containing the unified Observation → Detection → Healing pipeline.
-
-Pipeline: Traffic Generator → Middleware → RabbitMQ → Normalizer → OpenSearch + Detection → Healing
+Monitors CRAVE and runs the detection → healing pipeline on CRAVE's logs only.
 """
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -10,9 +9,7 @@ from fastapi.responses import JSONResponse
 import time
 
 from app.core.config import settings
-from app.simulation.failure_middleware import FailureSimulationMiddleware
 from app.core.logging import logger, log_request
-from app.observation.middleware import ObservationMiddleware
 from app.api.v1.endpoints import router as api_router
 
 # Create FastAPI application
@@ -25,10 +22,9 @@ app = FastAPI(
     Unified pipeline: **Observation → Detection → Healing**
 
     ### Pipeline Flow:
-    1. **Traffic** → Failure Middleware → Observation Middleware → RabbitMQ
-    2. **RabbitMQ Consumer** → Normalizer → OpenSearch + Redis
-    3. **Detection Worker** → 4 engines → Anomaly scoring
-    4. **Healing Engine** → Strategy execution → Verification
+    1. **CRAVE logs** → RabbitMQ → Normalizer → OpenSearch + Redis
+    2. **Detection Worker** → 4 engines → Anomaly scoring
+    3. **Healing Engine** → Strategy execution → Verification
 
     ### API Endpoints:
     - `GET /api/v1/observation/logs` — Real-time traffic logs (Redis)
@@ -37,7 +33,6 @@ app = FastAPI(
     - `GET /api/v1/detection/anomalies/history` — Historical anomalies (OpenSearch)
     - `GET /api/v1/healing/actions` — Healing actions (Redis)
     - `GET /api/v1/escalations` — Escalation alerts (Redis)
-    - `GET /api/v1/failure-simulator/*` — Control failure injection
     """,
     docs_url="/docs",
     redoc_url="/redoc",
@@ -51,13 +46,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-# Add failure simulation middleware (before observation — injects failures)
-app.add_middleware(FailureSimulationMiddleware)
-
-# Add Observation Layer middleware (outermost — records all traffic)
-app.add_middleware(ObservationMiddleware)
-
 
 # Request logging middleware
 @app.middleware("http")
@@ -76,10 +64,8 @@ async def log_requests(request: Request, call_next):
     )
     return response
 
-
 # Include API router
 app.include_router(api_router, prefix="/api/v1")
-
 
 # Health check endpoint
 @app.get("/health")
@@ -90,7 +76,6 @@ async def health_check():
         "app": settings.APP_NAME,
         "version": settings.APP_VERSION,
     }
-
 
 # Root endpoint
 @app.get("/")
@@ -108,10 +93,8 @@ async def root():
             "detection_history": "/api/v1/detection/anomalies/history",
             "healing": "/api/v1/healing/actions",
             "escalations": "/api/v1/escalations",
-            "failure_simulator": "/api/v1/failure-simulator/status",
         }
     }
-
 
 # Exception handler
 @app.exception_handler(Exception)
@@ -122,6 +105,58 @@ async def global_exception_handler(request: Request, exc: Exception):
         content={"error": "InternalServerError", "message": "An unexpected error occurred", "path": request.url.path}
     )
 
+# ── Helper: Flush Redis (keep OpenSearch intact) ──
+def _flush_redis_data():
+    """
+    Delete all Redis keys that hold runtime pipeline data.
+    This gives a fresh start every time the app boots.
+    OpenSearch data is NOT touched — it persists across restarts.
+    """
+    try:
+        from app.core.redis_client import redis_client
+        keys_to_delete = [
+            "observation:logs",
+            "observation:pending_detection",
+            "observation:anomalies",
+            "anomaly_stats:type",
+            "anomaly_stats:endpoint",
+            "analyser:pending",
+            "dispatcher:pending",
+            "healing:actions",
+            "escalation:alerts",
+            "incident:reports",
+            "consumer:events",
+            settings.PIPELINE_STAGE_KEY,
+        ]
+        deleted = 0
+        for key in keys_to_delete:
+            try:
+                if redis_client.delete(key):
+                    deleted += 1
+            except Exception:
+                pass
+        # Also flush last_seen:* keys (silence detection engine)
+        # to prevent phantom anomalies on fresh start
+        try:
+            cursor = 0
+            while True:
+                cursor, batch = redis_client.scan(cursor=cursor, match="last_seen:*", count=100)
+                for k in batch:
+                    redis_client.delete(k)
+                    deleted += 1
+                if cursor == 0:
+                    break
+        except Exception:
+            pass
+        # Set healing to disabled by default (user must enable)
+        try:
+            redis_client.set("healing:enabled", "0")
+        except Exception:
+            pass
+        logger.info("Redis data flushed for fresh start",
+                     keys_deleted=deleted, keys_attempted=len(keys_to_delete))
+    except Exception as e:
+        logger.warning("Redis flush failed (non-fatal)", error=str(e))
 
 # Startup event
 @app.on_event("startup")
@@ -129,12 +164,8 @@ async def startup_event():
     """Initialize application on startup"""
     logger.info("Application starting", app_name=settings.APP_NAME, version=settings.APP_VERSION)
 
-    # ── Initialize RabbitMQ publisher ──
-    try:
-        from app.ingestion.rabbitmq_publisher import rabbitmq_publisher
-        logger.info("RabbitMQ publisher initialized")
-    except Exception as e:
-        logger.warning("RabbitMQ publisher init failed (non-fatal)", error=str(e))
+    # ── Flush Redis for fresh start (OpenSearch untouched) ──
+    _flush_redis_data()
 
     # ── Initialize OpenSearch indices ──
     try:
@@ -144,21 +175,15 @@ async def startup_event():
     except Exception as e:
         logger.warning("OpenSearch initialization failed (non-fatal)", error=str(e))
 
-    # ── Start RabbitMQ consumer (ingests logs from middleware + Component C) ──
-    try:
-        from app.ingestion.rabbitmq_consumer import start_rabbitmq_consumer
-        start_rabbitmq_consumer()
-        logger.info("RabbitMQ consumer started")
-    except Exception as e:
-        logger.warning("RabbitMQ consumer start failed (non-fatal)", error=str(e))
+    # ── RabbitMQ consumer is NOT auto-started ──
+    # It must be started via the frontend toggle button.
+    # This ensures the user has control over when ingestion begins.
+    logger.info("RabbitMQ consumer NOT auto-started — use frontend toggle to start")
 
-    # ── Start silence detection background checker ──
-    try:
-        from app.detection.engines.silence_detection_engine import start_silence_checker
-        start_silence_checker()
-        logger.info("Silence detection checker started")
-    except Exception as e:
-        logger.warning("Silence checker start failed (non-fatal)", error=str(e))
+    # ── Silence detection checker is NOT started at boot ──
+    # It would generate false anomalies when the consumer is OFF.
+    # It will be started when the consumer is toggled ON.
+    logger.info("Silence checker NOT auto-started — starts with consumer")
 
     # ── Start Detection Worker ──
     from app.detection.worker import start_detection_worker
@@ -174,26 +199,20 @@ async def startup_event():
     start_dispatcher_worker()
     logger.info("Dispatcher Worker started")
 
-    # ── Start Traffic Generator (demo mode) ──
-    if settings.TRAFFIC_GENERATOR_ENABLED:
-        from app.simulation.traffic_generator import start_traffic_generator
-        start_traffic_generator(interval_ms=settings.TRAFFIC_GENERATOR_INTERVAL_MS)
-
     # ── Start Healing Verification Worker ──
     from app.healing.verification_worker import start_verification_worker
     start_verification_worker()
-
-    # ── Enable default failure scenarios for demo ──
-    from app.simulation.failure_config import failure_simulator
-    failure_simulator.enable_scenario("database_error")
-    logger.info("Enabled default failure scenarios for demo: database_error")
-
 
 # Shutdown event
 @app.on_event("shutdown")
 async def shutdown_event():
     logger.info("Application shutting down")
-
+    # Stop consumer if running
+    try:
+        from app.ingestion.rabbitmq_consumer import stop_rabbitmq_consumer
+        stop_rabbitmq_consumer()
+    except Exception:
+        pass
 
 if __name__ == "__main__":
     import uvicorn

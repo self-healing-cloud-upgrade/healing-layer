@@ -29,6 +29,7 @@ export default function DetectionAlerts({
   const { isDark } = useTheme();
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const chartRef = useRef<Chart | null>(null);
+  const seenIdsRef = useRef<Set<string>>(new Set());
 
   const chartData = useMemo(
     () => stats?.by_type
@@ -164,17 +165,25 @@ export default function DetectionAlerts({
           <EmptyState headline="No anomalies detected" />
         ) : (
           <AnimatePresence initial={false}>
-            {(anomalies || []).map((a, i) => 
-              a ? (
+            {(anomalies || []).map((a, i) => {
+              if (!a) return null;
+              const aKey = a.detection_id || `${a.timestamp}-${i}`;
+              const isNew = !seenIdsRef.current.has(aKey);
+              if (isNew) seenIdsRef.current.add(aKey);
+              if (seenIdsRef.current.size > 200) {
+                const arr = Array.from(seenIdsRef.current);
+                seenIdsRef.current = new Set(arr.slice(-100));
+              }
+              return (
                 <motion.div
-                  key={`${a.timestamp}-${i}`}
-                initial={{ opacity: 0, y: 12 }}
+                  key={aKey}
+                initial={isNew ? { opacity: 0, y: 12 } : false}
                 animate={{ opacity: 1, y: 0 }}
-                transition={{
+                transition={isNew ? {
                   duration: 0.3,
                   delay: Math.min(i * 0.04, 0.4),
                   ease: [0.16, 1, 0.3, 1],
-                }}
+                } : { duration: 0 }}
                 className="row-interactive"
                 style={{
                   padding: 'var(--space-3) var(--space-2)',
@@ -210,6 +219,12 @@ export default function DetectionAlerts({
                   }}>
                     {a.method}
                   </span>
+
+                  {a.failure_tag && a.failure_tag !== 'none' && (
+                    <span className="badge badge-accent" style={{ fontSize: 8, padding: '0 5px', letterSpacing: '0.02em' }}>
+                      {a.failure_tag.replace(/_/g, ' ')}
+                    </span>
+                  )}
 
                   {a.requires_llm && (
                     <span className="badge badge-accent" style={{ fontSize: 8, padding: '0 4px' }}>AI</span>
@@ -257,8 +272,8 @@ export default function DetectionAlerts({
                   </div>
                 )}
               </motion.div>
-            ) : null
-          )}
+              );
+            })}
           </AnimatePresence>
         )}
       </div>

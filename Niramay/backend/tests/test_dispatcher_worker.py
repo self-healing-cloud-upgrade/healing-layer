@@ -42,18 +42,21 @@ async def test_dispatcher_worker_consumes_from_queue():
 
 @pytest.mark.asyncio
 async def test_dispatcher_calls_component_a_placeholder():
-    """Dispatcher Worker calls _send_to_component_a
-    for every alert"""
+    """Dispatcher Worker calls _execute_healing for every alert."""
     from app.dispatcher.worker import _handle_dispatcher
     mock_redis = AsyncMock()
 
-    with patch("app.dispatcher.worker._send_to_component_a",
+    with patch("app.dispatcher.worker._execute_healing",
                new_callable=AsyncMock,
                return_value={
                    "healing_action": "restart_service",
-                   "status": "pending",
-                   "message": "placeholder",
-                   "verification_status": "PENDING",
+                   "status": "success",
+                   "message": "Container restarted",
+                   "error": None,
+                   "executed_at": "2024-01-15T10:30:01Z",
+                   "scenarios_disabled": [],
+                   "container_restarted": "crave-backend",
+                   "heal_endpoint_called": False,
                }) as mock_a:
         await _handle_dispatcher(mock_redis, SAMPLE_ALERT)
         mock_a.assert_called_once_with(SAMPLE_ALERT)

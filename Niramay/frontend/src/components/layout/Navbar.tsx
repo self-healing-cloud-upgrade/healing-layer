@@ -7,12 +7,15 @@ import { useState, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { useTheme } from '../../designSystem';
+import { useConsumerControl, useHealingToggle } from '../../hooks/useNiramayData';
 
 export default function Navbar() {
   const { isDark, toggleTheme } = useTheme();
   const navigate = useNavigate();
   const location = useLocation();
   const [scrolled, setScrolled] = useState(false);
+  const consumer = useConsumerControl();
+  const healingToggle = useHealingToggle();
 
   useEffect(() => {
     const fn = () => setScrolled(window.scrollY > 20);
@@ -21,6 +24,7 @@ export default function Navbar() {
   }, []);
 
   const isVisualizer = location.pathname === '/visualizer';
+  const isDashboard = location.pathname === '/dashboard';
 
   return (
     <motion.nav
@@ -92,28 +96,67 @@ export default function Navbar() {
         alignItems: 'center',
         gap: 'var(--space-3)',
       }}>
+        {/* Consumer toggle */}
+        <button
+          onClick={() => consumer.status.running ? consumer.stopConsumer() : consumer.startConsumer()}
+          disabled={consumer.loading}
+          style={{
+            display: 'flex', alignItems: 'center', gap: 6,
+            padding: '4px 12px', borderRadius: 'var(--radius-full)',
+            background: consumer.status.running ? 'rgba(45,122,79,0.08)' : 'rgba(239,68,68,0.06)',
+            border: `1px solid ${consumer.status.running ? 'rgba(45,122,79,0.2)' : 'rgba(239,68,68,0.15)'}`,
+            cursor: consumer.loading ? 'wait' : 'pointer', fontSize: 10,
+            color: consumer.status.running ? 'var(--color-status-success)' : 'var(--color-status-error)',
+            letterSpacing: '0.05em', textTransform: 'uppercase' as any,
+            fontWeight: 500, transition: 'all 180ms ease',
+          }}
+        >
+          <div style={{ width: 6, height: 6, borderRadius: '50%', background: consumer.status.running ? 'var(--color-status-success)' : 'var(--color-status-error)', animation: consumer.status.connected ? 'pulse 2s infinite' : 'none' }} />
+          {consumer.loading ? '...' : consumer.status.running ? 'Consumer ON' : 'Consumer OFF'}
+        </button>
+
+        {/* Healing toggle */}
+        <button
+          onClick={() => healingToggle.toggle()}
+          disabled={healingToggle.loading}
+          style={{
+            display: 'flex', alignItems: 'center', gap: 6,
+            padding: '4px 12px', borderRadius: 'var(--radius-full)',
+            background: healingToggle.enabled ? 'rgba(45,122,79,0.08)' : 'rgba(239,68,68,0.06)',
+            border: `1px solid ${healingToggle.enabled ? 'rgba(45,122,79,0.2)' : 'rgba(239,68,68,0.15)'}`,
+            cursor: healingToggle.loading ? 'wait' : 'pointer', fontSize: 10,
+            color: healingToggle.enabled ? 'var(--color-status-success)' : 'var(--color-status-error)',
+            letterSpacing: '0.05em', textTransform: 'uppercase' as any,
+            fontWeight: 500, transition: 'all 180ms ease',
+          }}
+        >
+          <div style={{ width: 6, height: 6, borderRadius: '50%', background: healingToggle.enabled ? 'var(--color-status-success)' : 'var(--color-status-error)' }} />
+          {healingToggle.enabled ? 'Healing ON' : 'Healing OFF'}
+        </button>
+
+        <div style={{ width: 1, height: 20, background: 'var(--color-border-subtle)' }} />
+
         {/* Nav links */}
         <button
           onClick={() => navigate('/')}
           className="btn-ghost"
-          style={{
-            padding: '6px 16px',
-            fontSize: 'var(--text-xs)',
-            opacity: isVisualizer ? 0.6 : 1,
-            border: isVisualizer ? '1px solid transparent' : undefined,
-          }}
+          style={{ padding: '6px 16px', fontSize: 'var(--text-xs)', opacity: (isDashboard || isVisualizer) ? 0.6 : 1 }}
         >
           Home
         </button>
         <button
+          onClick={() => navigate('/dashboard')}
+          className={isDashboard ? 'btn-primary' : 'btn-ghost'}
+          style={{ padding: '6px 16px', fontSize: 'var(--text-xs)' }}
+        >
+          Dashboard
+        </button>
+        <button
           onClick={() => navigate('/visualizer')}
           className={isVisualizer ? 'btn-primary' : 'btn-ghost'}
-          style={{
-            padding: '6px 16px',
-            fontSize: 'var(--text-xs)',
-          }}
+          style={{ padding: '6px 16px', fontSize: 'var(--text-xs)' }}
         >
-          Live Dashboard
+          Live View
         </button>
 
         {/* Theme toggle */}

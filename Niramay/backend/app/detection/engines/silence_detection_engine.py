@@ -112,9 +112,14 @@ class SilenceDetectionEngine(BaseEngine):
                 if cursor == 0:
                     break
 
-            for key in keys:
+            if not keys:
+                return []
+
+            # N+1 optimization: use mget to fetch all last_seen values in one go
+            last_seen_values = r.mget(keys)
+
+            for key, last_seen_str in zip(keys, last_seen_values):
                 try:
-                    last_seen_str = r.get(key)
                     if last_seen_str is None:
                         continue
 

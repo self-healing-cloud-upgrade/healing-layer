@@ -18,6 +18,8 @@ No SQLite. No dead Redis keys.
 import asyncio
 import json
 import structlog
+from datetime import datetime, timezone
+from app.core.config import settings
 from app.core.redis_client import get_async_redis
 from app.detection.index import detection_service
 # from app.healing.index import healing_service
@@ -64,18 +66,21 @@ async def detection_worker_loop():
     """
     Main async loop — pops logs from Redis, runs detection,
     dispatches results to Redis + OpenSearch.
+
+    Automatically reconnects if the Redis connection goes stale.
     """
     logger.info("Detection Worker started")
     r = await get_async_redis()
 
     while True:
         try:
-            # Blocking pop from the detection queue (5s timeout)
-            result = await r.brpop(PENDING_DETECTION_KEY, timeout=5)
+            # Non-blocking pop to avoid uvicorn/aioredis brpop deadlock bug
+            result = await r.lpop(PENDING_DETECTION_KEY)
             if result is None:
+                await asyncio.sleep(0.5)
                 continue
-
-            _, raw = result
+                
+            raw = result
             try:
                 log = json.loads(raw)
             except (json.JSONDecodeError, TypeError):
@@ -85,6 +90,12 @@ async def detection_worker_loop():
             # ── Run Detection (pure function — no side effects) ──
             detection_result = detection_service.detect_anomaly(log)
 
+            # Carry method forward from the source log.
+            # detect_anomaly does not include method in its output
+            # but the frontend AnomalyLog type expects it.
+            if "method" not in detection_result:
+                detection_result["method"] = log.get("method", "")
+
             if detection_result["is_anomaly"]:
                 await _handle_anomaly(r, detection_result)
             else:
@@ -93,9 +104,26 @@ async def detection_worker_loop():
         except asyncio.CancelledError:
             logger.info("Detection worker cancelled")
             break
+        except (ConnectionError, OSError) as e:
+            logger.warning(
+                "Detection worker: Redis connection lost, reconnecting",
+                error=str(e)
+            )
+            try:
+                await r.aclose()
+            except Exception:
+                pass
+            await asyncio.sleep(2)
+            r = await get_async_redis()
         except Exception as e:
             logger.error("Detection worker error", error=str(e))
+            # Reconnect on any unexpected error to avoid stuck loops
+            try:
+                await r.aclose()
+            except Exception:
+                pass
             await asyncio.sleep(2)
+            r = await get_async_redis()
 
 
 async def _handle_anomaly(r, detection_result: dict):
@@ -173,6 +201,26 @@ async def _handle_anomaly(r, detection_result: dict):
             "Failed to push to Analyser Worker queue",
             error=str(e)
         )
+
+    # ── 7. Update pipeline stage ──
+    try:
+        await r.set(
+            settings.PIPELINE_STAGE_KEY,
+            json.dumps({
+                "stage": "stage_2_complete",
+                "timestamp": datetime.now(
+                    timezone.utc).isoformat(),
+                "message": "Anomaly detected, analysis starting",
+                "service": detection_result.get("service"),
+                "severity": detection_result.get("severity"),
+                "failure_tag": detection_result.get(
+                    "failure_tag", "none"),
+                "anomaly_score": detection_result.get(
+                    "anomaly_score"),
+            })
+        )
+    except Exception:
+        pass
 
     # ── 7. Healing result storage (COMMENTED OUT) ──
     # Will be re-enabled when Component A is designed.
