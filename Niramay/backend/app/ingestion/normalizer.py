@@ -18,6 +18,46 @@ from typing import Dict, Any
 logger = structlog.get_logger(__name__)
 
 
+def _derive_crave_service(path: str) -> str:
+    """
+    Derive CRAVE service name from endpoint path.
+    Used as fallback when service field is absent in the log message.
+    Mirrors CRAVE's service_registry so that structlog-format messages
+    (which carry path but no service) still get a meaningful service name.
+    Returns "unknown" if path doesn't match any known CRAVE prefix.
+    """
+    if not path:
+        return "unknown"
+    p = path.lower()
+    if p.startswith("/api/v1/auth"):
+        return "crave-auth"
+    if p.startswith("/api/v1/restaurants"):
+        return "crave-restaurant"
+    if p.startswith("/api/v1/orders"):
+        return "crave-orders"
+    if p.startswith("/api/v1/payments"):
+        return "crave-payments"
+    if p.startswith("/api/v1/delivery"):
+        return "crave-delivery"
+    if p.startswith("/api/v1/admin"):
+        return "crave-admin"
+    if p.startswith("/api/v1/contact"):
+        return "crave-notification"
+    if p.startswith("/api/v1/developer"):
+        return "crave-developer"
+    if p.startswith("/api/v1/chaos"):
+        return "crave-chaos"
+    if p.startswith("/api/v1/failure-simulator"):
+        return "crave-simulator"
+    if p.startswith("/api/v1/observation"):
+        return "crave-observation"
+    if p.startswith("/api/v1/"):
+        return "crave-backend"
+    if p in ("/health", "/", "/api/v1/"):
+        return "crave-gateway"
+    return "unknown"
+
+
 def normalize_log(raw_message: str) -> Dict[str, Any]:
     """
     Parse a raw log message string into the normalized structure.
@@ -84,6 +124,7 @@ def normalize_log(raw_message: str) -> Dict[str, Any]:
     # ── Service ──
     # Accept both "service" and "service_name" (Component C may use either)
     service = data.get("service") or data.get("service_name")
+    service_derived = False
     if not service:
         service = "unknown"
         incomplete_fields.append("service")
@@ -91,12 +132,27 @@ def normalize_log(raw_message: str) -> Dict[str, Any]:
         service = str(service)
 
     # ── Endpoint ──
-    endpoint = data.get("endpoint")
+    # Accept both "endpoint" and "path" (CRAVE structlog uses "path")
+    endpoint = (
+        data.get("endpoint")
+        or data.get("path")
+    )
     if not endpoint:
         endpoint = "unknown"
         incomplete_fields.append("endpoint")
     else:
         endpoint = str(endpoint)
+
+    # ── Service fallback: derive from endpoint if still unknown ──
+    # Handles CRAVE structlog format which has path/duration_ms but no service.
+    # Must run after endpoint is resolved so we have a path to derive from.
+    if service == "unknown" and endpoint != "unknown":
+        derived = _derive_crave_service(endpoint)
+        if derived != "unknown":
+            service = derived
+            service_derived = True
+            if "service" in incomplete_fields:
+                incomplete_fields.remove("service")
 
     # ── Status Code ──
     status_code = data.get("status_code")
@@ -111,8 +167,12 @@ def normalize_log(raw_message: str) -> Dict[str, Any]:
             incomplete_fields.append("status_code")
 
     # ── Response Time (ms) ──
-    # Accept both "response_time_ms" and "response_time"
-    response_time_ms = data.get("response_time_ms") or data.get("response_time")
+    # Accept "response_time_ms", "response_time", and "duration_ms" (CRAVE structlog uses "duration_ms")
+    response_time_ms = (
+        data.get("response_time_ms")
+        or data.get("response_time")
+        or data.get("duration_ms")
+    )
     if response_time_ms is None:
         response_time_ms = 0.0
     else:

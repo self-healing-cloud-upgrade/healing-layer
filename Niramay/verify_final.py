@@ -45,9 +45,6 @@ run("dead files deleted",
     "'backend/app/db/session.py',"
     "'backend/niramay.db',"
     "'backend/app/verify_system.py',"
-    "'backend/app/core/failure_config.py',"
-    "'backend/app/core/failure_middleware.py',"
-    "'backend/app/traffic_generator.py'"
     ")) { if(Test-Path $f) { echo STILL_EXISTS:$f } else { echo DELETED:$f } }")
 
 run("no imports from deleted files",
@@ -90,11 +87,16 @@ run("detection index still pure function",
     "| Where-Object { $_.Line -notmatch '^\\s*#' -and $_.Line -notmatch '\"\"\"' -and $_.Line -notmatch \"'''\" }; "
     "if($m) { $m | ForEach-Object { $_.ToString() } } else { echo PURE_CONFIRMED }")
 
-# NO REGRESSIONS: middleware still uses rabbitmq
-run("middleware still uses rabbitmq",
-    "Select-String -Path backend/app/observation/middleware.py "
-    "-Pattern 'rabbitmq_publisher|publish' "
-    "| ForEach-Object { $_.ToString() }")
+# CONFIRM: middleware deleted, no rabbitmq publishing from Niramay
+run("middleware deleted confirmed",
+    "if(Test-Path backend/app/observation/middleware.py) "
+    "{ echo STILL_EXISTS } else { echo DELETED_CONFIRMED }")
+
+run("no rabbitmq_publisher in active code",
+    "Get-ChildItem -Recurse backend/app -Include *.py "
+    "| Select-String -Pattern 'rabbitmq_publisher' "
+    "| ForEach-Object { $_.ToString() }; "
+    "if(-not $?) { echo NONE_FOUND }")
 
 # FULL TEST SUITE
 run("full test suite after all changes",

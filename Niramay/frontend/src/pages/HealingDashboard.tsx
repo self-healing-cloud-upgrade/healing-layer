@@ -7,45 +7,93 @@
  */
 
 import { useState, useEffect, useCallback, useRef } from 'react';
+import { useNavigate, Link } from 'react-router-dom';
 import axios from 'axios';
 import { useTheme, createRipple, type ObservationLog, type AnomalyLog, type HealingAction } from '../designSystem';
-import { useNiramayData } from '../hooks/useNiramayData';
+import { useNiramayData, usePipelineStage, useConsumerControl, useHealingToggle } from '../hooks/useNiramayData';
 import StatCard from '../components/StatCard';
-import ThemeToggle from '../components/Toggle';
 import ObservationFeed from '../components/ObservationFeed';
 import DetectionAlerts from '../components/DetectionAlerts';
 import HealingActionsPanel from '../components/HealingActions';
-import AICopilot from '../components/AICopilot';
 import { IncidentReportsPanel } from '../components/IncidentReportsPanel';
 import { SkeletonStatCard } from '../components/SkeletonBlock';
+import EscalationEmailSettings from '../components/EscalationEmailSettings';
+import PipelineProgressBar from '../components/PipelineProgressBar';
+import LogsPanel from '../components/LogsPanel';
+import PipelineArtifactCards from '../components/PipelineArtifactCards';
+import ReportPortal from '../components/ReportPortal';
+import ManualHealingPanel from '../components/ManualHealingPanel';
+import OpenSearchSearchPanel from '../components/OpenSearchSearchPanel';
 
-const API = import.meta.env.VITE_API_URL || '';
+// Empty string routes all requests through the Vite proxy (/api → niramay-backend:8000).
+// Never use VITE_API_URL here — the browser cannot resolve the docker container hostname.
+const API = '';
 
-export default function HealingDashboard() {
-  const { isDark } = useTheme();
-  const { 
-    logs, 
-    anomalies, 
-    healingActions, 
+type TriggerState = 'idle' | 'loading' | 'success' | 'error';
+
+export default function HealingDashboard({ isActive = true }: { isActive?: boolean }) {
+  const { isDark, toggleTheme } = useTheme();
+  const navigate = useNavigate();
+  // Stable ref so the scroll handler can check visibility without re-registration
+  const isActiveRef = useRef(isActive);
+  useEffect(() => { isActiveRef.current = isActive; }, [isActive]);
+  const {
+    logs,
+    anomalies,
+    healingActions,
     incidentReports,
-    stats, 
-    isLive, 
-    setIsLive, 
-    lastRefresh, 
-    loading, 
+    stats,
+    isLive,
+    setIsLive,
+    lastRefresh,
+    loading,
     fetchData,
-    metrics 
+    metrics
   } = useNiramayData();
+
+  const pipelineStage = usePipelineStage(true);
+  const consumer = useConsumerControl();
+  const healingToggle = useHealingToggle();
+
+  const [triggerState, setTriggerState] = useState<TriggerState>('idle');
+  const [triggerMessage, setTriggerMessage] = useState('');
+  const [lastTriggered, setLastTriggered] = useState<{ scenario: string; at: string } | null>(null);
+
+  const triggerFailure = useCallback(async (scenario: string) => {
+    setTriggerState('loading');
+    setTriggerMessage('');
+    try {
+      const res = await fetch(`${API}/api/v1/demo/trigger-failure`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ scenario }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setTriggerState('success');
+        setTriggerMessage(`Failure injected — watch Niramay detect and heal`);
+        setLastTriggered({ scenario, at: new Date().toLocaleTimeString() });
+      } else {
+        setTriggerState('error');
+        setTriggerMessage(data.error || 'Failed to inject failure');
+      }
+    } catch (err: any) {
+      setTriggerState('error');
+      setTriggerMessage(err.message || 'Network error');
+    }
+    setTimeout(() => setTriggerState('idle'), 5000);
+  }, []);
 
   const [scrolled, setScrolled] = useState(false);
   const [scrollProgress, setScrollProgress] = useState(0);
   const [showBackToTop, setShowBackToTop] = useState(false);
   const heroRef = useRef<HTMLDivElement>(null);
 
-  // Scroll tracking
+  // Scroll tracking — skipped when this view is hidden behind display:none
   useEffect(() => {
     let ticking = false;
     const fn = () => {
+      if (!isActiveRef.current) return;
       if (ticking) return;
       ticking = true;
       requestAnimationFrame(() => {
@@ -53,11 +101,9 @@ export default function HealingDashboard() {
         setScrolled(y > 24);
         setShowBackToTop(y > 400);
 
-        // Progress
         const docH = document.documentElement.scrollHeight - window.innerHeight;
         setScrollProgress(docH > 0 ? (y / docH) * 100 : 0);
 
-        // Parallax on hero
         if (heroRef.current) {
           heroRef.current.style.transform = `translateY(${y * 0.3}px)`;
         }
@@ -68,6 +114,16 @@ export default function HealingDashboard() {
     window.addEventListener('scroll', fn, { passive: true });
     return () => window.removeEventListener('scroll', fn);
   }, []);
+
+  // Re-sync scroll state the moment this view becomes active again
+  useEffect(() => {
+    if (!isActive) return;
+    const y = window.scrollY;
+    setScrolled(y > 24);
+    setShowBackToTop(y > 400);
+    const docH = document.documentElement.scrollHeight - window.innerHeight;
+    setScrollProgress(docH > 0 ? (y / docH) * 100 : 0);
+  }, [isActive]);
 
   const scrollToTop = () => {
     window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -123,8 +179,86 @@ export default function HealingDashboard() {
         <div style={{
           display: 'flex',
           alignItems: 'center',
-          gap: 'var(--space-4)',
+          gap: 'var(--space-3)',
         }}>
+          {/* Consumer toggle */}
+          <button
+            id="consumer-toggle"
+            onClick={() => consumer.status.running ? consumer.stopConsumer() : consumer.startConsumer()}
+            disabled={consumer.loading}
+            className="ripple-host"
+            onMouseDown={(e) => createRipple(e)}
+            aria-label={consumer.status.running ? 'Stop consumer' : 'Start consumer'}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 'var(--space-2)',
+              padding: '4px 12px',
+              borderRadius: 'var(--radius-full)',
+              background: consumer.status.running ? 'rgba(45, 122, 79, 0.08)' : 'rgba(239,68,68,0.06)',
+              border: `1px solid ${consumer.status.running ? 'rgba(45,122,79,0.2)' : 'rgba(239,68,68,0.15)'}`,
+              cursor: consumer.loading ? 'wait' : 'pointer',
+              transition: 'all 180ms var(--ease-out-expo)',
+            }}
+          >
+            <div style={{
+              width: 6, height: 6, borderRadius: '50%',
+              background: consumer.status.running ? 'var(--color-status-success)' : 'var(--color-status-error)',
+              animation: consumer.status.connected ? 'pulse 2s infinite' : 'none',
+            }} />
+            <span style={{
+              fontSize: 10,
+              color: consumer.status.running ? 'var(--color-status-success)' : 'var(--color-status-error)',
+              letterSpacing: 'var(--tracking-wider)',
+              textTransform: 'uppercase',
+              fontWeight: 'var(--font-weight-medium)' as any,
+            }}>
+              {consumer.loading ? '...' : consumer.status.running ? 'Consumer ON' : 'Consumer OFF'}
+            </span>
+          </button>
+
+          {/* Healing toggle */}
+          <button
+            id="healing-toggle"
+            onClick={() => healingToggle.toggle()}
+            disabled={healingToggle.loading}
+            className="ripple-host"
+            onMouseDown={(e) => createRipple(e)}
+            aria-label={healingToggle.enabled ? 'Disable healing' : 'Enable healing'}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 'var(--space-2)',
+              padding: '4px 12px',
+              borderRadius: 'var(--radius-full)',
+              background: healingToggle.enabled ? 'rgba(45, 122, 79, 0.08)' : 'rgba(239,68,68,0.06)',
+              border: `1px solid ${healingToggle.enabled ? 'rgba(45,122,79,0.2)' : 'rgba(239,68,68,0.15)'}`,
+              cursor: healingToggle.loading ? 'wait' : 'pointer',
+              transition: 'all 180ms var(--ease-out-expo)',
+            }}
+          >
+            <div style={{
+              width: 6, height: 6, borderRadius: '50%',
+              background: healingToggle.enabled ? 'var(--color-status-success)' : 'var(--color-status-error)',
+            }} />
+            <span style={{
+              fontSize: 10,
+              color: healingToggle.enabled ? 'var(--color-status-success)' : 'var(--color-status-error)',
+              letterSpacing: 'var(--tracking-wider)',
+              textTransform: 'uppercase',
+              fontWeight: 'var(--font-weight-medium)' as any,
+            }}>
+              {healingToggle.enabled ? 'Healing ON' : 'Healing OFF'}
+            </span>
+          </button>
+
+          <div style={{ width: 1, height: 20, background: 'var(--color-border-subtle)' }} />
+
+          {/* Nav links */}
+          <button onClick={() => navigate('/')} className="btn-ghost" style={{ padding: '4px 12px', fontSize: 'var(--text-xs)' }}>Home</button>
+          <button onClick={() => navigate('/visualizer')} className="btn-ghost" style={{ padding: '4px 12px', fontSize: 'var(--text-xs)' }}>Live View</button>
+          <Link to="/reports" className="btn-ghost" style={{ padding: '4px 12px', fontSize: 'var(--text-xs)', color: 'var(--color-text-secondary)', textDecoration: 'none' }}>Reports</Link>
+
           {/* Live indicator */}
           <button
             id="live-toggle"
@@ -185,8 +319,23 @@ export default function HealingDashboard() {
             {lastRefresh.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
           </span>
 
-          {/* Theme toggle */}
-          <ThemeToggle />
+          {/* Theme toggle — simple icon */}
+          <button
+            onClick={toggleTheme}
+            className="btn-icon"
+            aria-label={isDark ? 'Switch to light mode' : 'Switch to dark mode'}
+          >
+            {isDark ? (
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round">
+                <circle cx="8" cy="8" r="3.5" />
+                <path d="M8 1v1.5M8 13.5V15M1 8h1.5M13.5 8H15M3.05 3.05l1.06 1.06M11.89 11.89l1.06 1.06M3.05 12.95l1.06-1.06M11.89 4.11l1.06-1.06" />
+              </svg>
+            ) : (
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round">
+                <path d="M13.5 8.5a5.5 5.5 0 0 1-6-6A5.5 5.5 0 1 0 13.5 8.5Z" />
+              </svg>
+            )}
+          </button>
         </div>
       </nav>
 
@@ -316,6 +465,12 @@ export default function HealingDashboard() {
           </div>
         </section>
 
+        {/* ── Pipeline Progress Bar (Feature 4) ── */}
+        <PipelineProgressBar />
+
+        {/* ── Escalation Email Settings ── */}
+        <EscalationEmailSettings />
+
         {/* ── Stat Row ── */}
         <section
           data-aos="fade-up"
@@ -360,16 +515,38 @@ export default function HealingDashboard() {
           <div data-aos="fade-up" data-aos-delay="100">
             <DetectionAlerts anomalies={anomalies} stats={stats} />
           </div>
-          <div data-aos="fade-up" data-aos-delay="200">
+          <div data-aos="fade-up" data-aos-delay="200" style={{ gridColumn: '1 / -1' }}>
             <HealingActionsPanel actions={healingActions} />
-          </div>
-          <div data-aos="fade-up" data-aos-delay="300">
-            <AICopilot anomalies={anomalies} />
           </div>
           <div data-aos="fade-up" data-aos-delay="400" style={{ gridColumn: '1 / -1' }}>
             <IncidentReportsPanel reports={incidentReports} />
           </div>
         </div>
+
+        {/* ── Detection OpenSearch search (Feature 5b) ── */}
+        <div data-aos="fade-up" style={{ marginTop: 'var(--space-6)' }}>
+          <div className="glass card-glass" style={{ padding: 'var(--space-5) var(--space-6)', borderRadius: 'var(--radius-xl)' }}>
+            <OpenSearchSearchPanel />
+          </div>
+        </div>
+
+        {/* ── Logs Panel (Feature 1) ── */}
+        <div style={{ marginTop: 'var(--space-6)' }}>
+          <LogsPanel />
+        </div>
+
+        {/* ── Pipeline Artifact Cards (Feature 2) ── */}
+        <div style={{ marginTop: 'var(--space-6)' }}>
+          <PipelineArtifactCards />
+        </div>
+
+        {/* ── Report Generation Portal (Section 1) ── */}
+        <div style={{ marginTop: 'var(--space-6)' }}>
+          <ReportPortal />
+        </div>
+
+        {/* ── Manual Healing Panel — slides in from right when mode = manual (Feature 6) ── */}
+        <ManualHealingPanel />
       </main>
 
       {/* ═══ Back to Top ═══ */}

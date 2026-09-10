@@ -1,0 +1,69 @@
+---
+# K3s RBAC for Niramay Self-Healing Layer
+#
+# Grants the niramay ServiceAccount permission to:
+#   - Read and patch Deployments (restart, scale, rollback)
+#   - Read ReplicaSets (rollback needs to find previous RS)
+#   - Read and exec into Pods (flush_cache runs redis-cli)
+#
+# Apply with: kubectl apply -f k3s/niramay-rbac.yaml
+
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: niramay
+  namespace: selfhealing
+  labels:
+    app: niramay-backend
+    component: self-healing
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: niramay-healer
+  labels:
+    app: niramay-backend
+    component: self-healing
+rules:
+  # Deployments — restart (patch annotation), scale, rollback
+  - apiGroups: ["apps"]
+    resources: ["deployments"]
+    verbs: ["get", "list", "patch", "update"]
+
+  # Deployment scale subresource — scale_up, throttle, circuit_breaker
+  - apiGroups: ["apps"]
+    resources: ["deployments/scale"]
+    verbs: ["get", "patch"]
+
+  # ReplicaSets — rollback needs to list and read previous RS
+  - apiGroups: ["apps"]
+    resources: ["replicasets"]
+    verbs: ["get", "list"]
+
+  # Pods — flush_cache needs to find the Redis pod
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list"]
+
+  # Pod exec — flush_cache runs redis-cli FLUSHDB inside the pod
+  - apiGroups: [""]
+    resources: ["pods/exec"]
+    verbs: ["create"]
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: niramay-healer-binding
+  labels:
+    app: niramay-backend
+    component: self-healing
+subjects:
+  - kind: ServiceAccount
+    name: niramay
+    namespace: selfhealing
+roleRef:
+  kind: ClusterRole
+  name: niramay-healer
+  apiGroup: rbac.authorization.k8s.io

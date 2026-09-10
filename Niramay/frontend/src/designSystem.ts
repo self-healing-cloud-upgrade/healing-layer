@@ -97,6 +97,11 @@ export interface ObservationLog {
   response_time_ms: number;
   failure_tag: string;
   request_id?: string;
+  // Extra fields returned by the normalizer — useful for diagnostics
+  incomplete_fields?: string[];
+  is_malformed?: boolean;
+  is_timestamp_assigned?: boolean;
+  raw?: string;
 }
 
 export interface AnomalyLog {
@@ -139,6 +144,30 @@ export interface HealingAction {
   timestamp: string;
   message: string;
   verification_status: string;
+  // Fields added to match full API response (dispatcher worker)
+  alert_id?: string;
+  detection_id?: string;
+  service?: string;
+  endpoint?: string;
+  failure_tag?: string;
+  recommended_action?: string;
+  container_restarted?: string | null;
+  scenarios_disabled?: string[];
+  error?: string | null;
+  executed_at?: string;
+  heal_endpoint_called?: boolean;
+  retry_count?: number;
+  // K3s Phase 2 result fields
+  k3s_deployment?: string;
+  k3s_namespace?: string;
+  new_replicas?: number;
+  previous_replicas?: number;
+  rolled_back_to?: string;
+  original_replicas?: number;
+  circuit_duration?: number;
+  throttled_replicas?: number;
+  duration_seconds?: number;
+  redis_pod?: string;
 }
 
 export interface IncidentReport {
@@ -155,7 +184,7 @@ export interface EscalationAlert {
   type: string;
   service: string;
   endpoint: string;
-  failure_tag: string;  // Uses failure_tag to match detection pipeline output
+  failure_type: string;  // Matches backend schemas.py EscalationAlertResponse
   attempts: number;
   healing_actions_tried: string[];
   outcomes: string[];
@@ -243,4 +272,96 @@ export function createRipple(e: React.MouseEvent<HTMLElement>) {
 
   element.appendChild(ripple);
   setTimeout(() => ripple.remove(), 600);
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   NEW DATA TYPES — Features 1–6
+   ═══════════════════════════════════════════════════════════════════ */
+
+/** Feature 1 — Raw log entry from crave-raw-logs */
+export interface RawLogHit {
+  timestamp: string;
+  source: string;
+  message: string;
+  level: string;
+  traceId: string;
+  _raw: Record<string, unknown>;
+}
+
+/** Feature 1 — Normalized log entry from crave-normalized-logs */
+export interface NormalizedLogHit {
+  timestamp: string;
+  service: string;
+  endpoint: string;
+  method: string;
+  status_code: number;
+  response_time_ms: number;
+  failure_tag: string;
+  request_id?: string;
+  anomaly_score?: number;
+  is_malformed?: boolean;
+  raw?: string;
+}
+
+/** Feature 1 — Paginated log response envelope */
+export interface LogPage<T> {
+  total: number;
+  page: number;
+  size: number;
+  hits: T[];
+}
+
+/** Feature 2 — Artifact card data */
+export interface ArtifactCard {
+  key: 'raw-logs' | 'anomaly-records' | 'incident-reports' | 'heal-report';
+  index: string;
+  count: number;
+  last_updated: string | null;
+}
+
+/** Feature 3 — Report entry */
+export interface Report {
+  report_id: string;
+  report_type: 'incident_summary' | 'heal_summary' | 'full_pipeline';
+  date_from: string;
+  date_to: string;
+  severities: string[];
+  format: 'pdf' | 'json' | 'csv';
+  status: 'pending' | 'ready' | 'failed';
+  generated_at: string | null;
+  row_count: number | null;
+  created_at: string;
+}
+
+/** Feature 4 — Pipeline event (from /api/v1/pipeline/events) */
+export interface PipelineEvent {
+  event_type: string;
+  stage: string;
+  timestamp: string;
+  message: string;
+}
+
+/** Feature 6 — Healing mode state */
+export interface HealingMode {
+  mode: 'autonomous' | 'manual' | null;
+  set_at: string | null;
+}
+
+/** Feature 6 — Pending manual healing action */
+export interface PendingHealingAction {
+  action_id: string;
+  healing_action: string;
+  service?: string;
+  endpoint?: string;
+  failure_tag?: string;
+  timestamp: string;
+  message: string;
+}
+
+/** Feature 5b — OpenSearch search result hit */
+export interface SearchHit {
+  _score: number;
+  timestamp: string;
+  snippet: string;
+  _source: Record<string, unknown>;
 }

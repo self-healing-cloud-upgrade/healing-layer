@@ -1,4 +1,4 @@
 # Observation Package — HTTP traffic capture
-# Only middleware.py remains; store.py and schemas.py were removed
+# Observation package — middleware removed after RabbitMQ publishing
+# was centralised to CRAVE log_shipper only.
 # as part of the SQLite → Redis/OpenSearch migration.
-from .middleware import ObservationMiddleware
