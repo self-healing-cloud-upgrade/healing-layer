@@ -184,19 +184,37 @@ class RestartServiceStrategy(BaseHealingStrategy):
     """
     Healing strategy for restart_service action.
 
-    Executes in two steps:
-        1. Call CRAVE heal endpoint to stop failures
-           (DISABLED in Phase 1 — see CRAVE_HEAL_ENABLED)
-        2. Restart container via Docker socket
+    Routing:
+        K3S_ENABLED=true  → Delegates to K3sRestartStrategy
+                             (K3s rolling restart via API annotation patch)
+        K3S_ENABLED=false → Docker socket restart (existing Phase 1 logic)
+                             Uses CRAVE heal endpoint + docker.sock
 
-    Step 1 is commented out pending Phase 2 integration.
-    Step 2 (Docker restart) is always executed.
+    Both paths call the CRAVE heal endpoint first to stop the
+    failure injector before restarting the service.
     """
 
     async def execute(
         self,
         machine_alert: Dict[str, Any]
     ) -> Dict[str, Any]:
+        # ── K3s path ──────────────────────────────────────────────────
+        # When K3s cluster is available, use K3s rolling restart
+        # instead of Docker socket restart
+        if settings.K3S_ENABLED:
+            try:
+                from app.healing_action_executor.strategies.k3s_restart import (
+                    K3sRestartStrategy,
+                )
+                return await K3sRestartStrategy().execute(machine_alert)
+            except ImportError:
+                logger.warning(
+                    "RestartServiceStrategy: K3S_ENABLED=true but "
+                    "K3sRestartStrategy import failed — "
+                    "falling through to Docker socket restart"
+                )
+
+        # ── Docker socket path (existing Phase 1 logic) ──────────────
         service = machine_alert.get("service", "unknown")
         alert_id = machine_alert.get("alert_id", "unknown")
 

@@ -76,6 +76,23 @@ services:
         condition: service_healthy
     networks:
       - selfhealing-network
+  # ── Ollama (LLM — AI Causal Engine) ─────────────────────────────────
+  ollama:
+    image: ollama/ollama:latest
+    container_name: niramay-ollama
+    restart: unless-stopped
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 10s
+      timeout: 10s
+      retries: 15
+      start_period: 20s
+    networks:
+      - selfhealing-network
 
   # ── FastAPI Backend ────────────────────────────────────────────────────
   backend:
@@ -99,6 +116,9 @@ services:
       OPENSEARCH_PASSWORD: admin
       TRAFFIC_GENERATOR_ENABLED: "false"
       TRAFFIC_GENERATOR_INTERVAL_MS: "2000"
+      OLLAMA_URL: "http://niramay-ollama:11434/api/generate"
+      OLLAMA_MODEL: "llama3.2"
+      ENABLE_AI_CAUSAL: "true"
       CORS_ORIGINS: '["http://localhost:3000","http://localhost:5173"]'
     ports:
       - "8000:8000"
@@ -108,6 +128,8 @@ services:
       rabbitmq:
         condition: service_healthy
       opensearch:
+        condition: service_healthy
+      ollama:
         condition: service_healthy
     volumes:
       - ./backend:/app
@@ -150,6 +172,7 @@ volumes:
   redis_data:
   rabbitmq_data:
   opensearch_data:
+  ollama_data:
 
 networks:
   selfhealing-network:

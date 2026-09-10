@@ -1,0 +1,128 @@
+# K3s → Docker Compose Bridge Services
+# =======================================
+#
+# This file creates Kubernetes ExternalName Services that point to the
+# Docker Compose services running on the same machine.
+#
+# HOW IT WORKS:
+#   K3s pods use hostnames like "niramay-redis", "niramay-rabbitmq" etc.
+#   These Services intercept those DNS lookups and redirect them to the
+#   actual Docker Compose host IP. No app code changes needed.
+#
+# BEFORE APPLYING: find your host IP.
+#   Run inside WSL2:
+#     ip route show default | awk '/default/ {print $3}'
+#   Example output: 172.27.96.1
+#
+# Replace 172.27.96.1 below with that value, then apply:
+#   kubectl apply -f k3s/docker-compose-bridge.yaml
+#
+# NOTE: If your WSL2 restarts, the IP may change. Re-run the command
+# above and update this file + re-apply.
+#
+# DOCKER COMPOSE REQUIREMENTS:
+#   All services below must have their ports exposed in docker-compose.yml:
+#     redis:        6379:6379  ✓
+#     rabbitmq:     5672:5672  ✓
+#     opensearch:   9200:9200  ✓
+#   These are already set in your current docker-compose.yml.
+
+---
+# Redis (port 6379 exposed by Docker Compose)
+apiVersion: v1
+kind: Service
+metadata:
+  name: niramay-redis
+  namespace: default
+  labels:
+    bridge: docker-compose
+    service: redis
+spec:
+  type: ExternalName
+  externalName: 172.27.96.1   # replace with: ip route show default | awk '/default/ {print $3}'
+  ports:
+    - name: redis
+      port: 6379
+      targetPort: 6379
+
+---
+# RabbitMQ (port 5672 exposed by Docker Compose)
+apiVersion: v1
+kind: Service
+metadata:
+  name: niramay-rabbitmq
+  namespace: default
+  labels:
+    bridge: docker-compose
+    service: rabbitmq
+spec:
+  type: ExternalName
+  externalName: 172.27.96.1   # replace with: ip route show default | awk '/default/ {print $3}'
+  ports:
+    - name: amqp
+      port: 5672
+      targetPort: 5672
+    - name: management
+      port: 15672
+      targetPort: 15672
+
+---
+# OpenSearch (port 9200 exposed by Docker Compose)
+apiVersion: v1
+kind: Service
+metadata:
+  name: niramay-opensearch
+  namespace: default
+  labels:
+    bridge: docker-compose
+    service: opensearch
+spec:
+  type: ExternalName
+  externalName: 172.27.96.1   # replace with: ip route show default | awk '/default/ {print $3}'
+  ports:
+    - name: http
+      port: 9200
+      targetPort: 9200
+
+---
+# Crave backend (port 8000 exposed by Docker Compose, if Crave still runs there)
+# Remove this if Crave is running inside K3s (crave-deployment.yaml)
+apiVersion: v1
+kind: Service
+metadata:
+  name: crave-backend-dc
+  namespace: default
+  labels:
+    bridge: docker-compose
+    service: crave
+spec:
+  type: ExternalName
+  externalName: 172.27.96.1
+  ports:
+    - name: http
+      port: 8000
+      targetPort: 8000
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: crave-postgres
+  namespace: default
+spec:
+  type: ExternalName
+  externalName: 172.27.96.1
+  ports:
+    - port: 5432
+      targetPort: 5433
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: crave-redis
+  namespace: default
+spec:
+  type: ExternalName
+  externalName: 172.27.96.1
+  ports:
+    - port: 6379
+      targetPort: 6380

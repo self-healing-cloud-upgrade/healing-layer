@@ -157,6 +157,17 @@ export interface HealingAction {
   executed_at?: string;
   heal_endpoint_called?: boolean;
   retry_count?: number;
+  // K3s Phase 2 result fields
+  k3s_deployment?: string;
+  k3s_namespace?: string;
+  new_replicas?: number;
+  previous_replicas?: number;
+  rolled_back_to?: string;
+  original_replicas?: number;
+  circuit_duration?: number;
+  throttled_replicas?: number;
+  duration_seconds?: number;
+  redis_pod?: string;
 }
 
 export interface IncidentReport {

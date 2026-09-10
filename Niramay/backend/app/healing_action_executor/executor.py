@@ -12,9 +12,20 @@ a standardized result dict.
 
 Strategy routing:
     restart_service   → RestartServiceStrategy
+                        (uses K3s rolling restart when K3S_ENABLED,
+                         Docker socket restart otherwise)
     escalate_only     → EscalateOnlyStrategy
     none              → NoopStrategy
-    (all others)      → StubStrategy (Phase 2)
+
+    When K3S_ENABLED=true (K3s cluster available):
+        throttle_requests   → K3sThrottleStrategy
+        flush_cache         → K3sFlushCacheStrategy
+        scale_up            → K3sScaleUpStrategy
+        circuit_breaker     → K3sCircuitBreakerStrategy
+        rollback_deployment → K3sRollbackStrategy
+
+    When K3S_ENABLED=false (Docker Compose / no cluster):
+        (all above)         → StubStrategy (returns failed)
 
 All strategies return the same result dict structure.
 The executor never raises exceptions.
@@ -42,19 +53,67 @@ from app.core.config import settings
 
 logger = structlog.get_logger(__name__)
 
-# Strategy registry
-# Maps vocabulary action names to strategy instances
+# ── Strategy registry ─────────────────────────────────────────────────────
+# Core strategies (always available, regardless of K3S_ENABLED)
 _STRATEGY_REGISTRY: Dict[str, Any] = {
     "restart_service": RestartServiceStrategy(),
     "escalate_only": EscalateOnlyStrategy(),
     "none": NoopStrategy(),
-    # Phase 2 stubs
-    "throttle_requests": StubStrategy("throttle_requests"),
-    "flush_cache": StubStrategy("flush_cache"),
-    "scale_up": StubStrategy("scale_up"),
-    "circuit_breaker": StubStrategy("circuit_breaker"),
-    "rollback_deployment": StubStrategy("rollback_deployment"),
 }
+
+# K3s strategies (only when K3S_ENABLED=true and cluster is reachable)
+if settings.K3S_ENABLED:
+    try:
+        from app.healing_action_executor.strategies.k3s_scale_up import (
+            K3sScaleUpStrategy,
+        )
+        from app.healing_action_executor.strategies.k3s_rollback import (
+            K3sRollbackStrategy,
+        )
+        from app.healing_action_executor.strategies.k3s_throttle import (
+            K3sThrottleStrategy,
+        )
+        from app.healing_action_executor.strategies.k3s_circuit_breaker import (
+            K3sCircuitBreakerStrategy,
+        )
+        from app.healing_action_executor.strategies.k3s_flush_cache import (
+            K3sFlushCacheStrategy,
+        )
+        _STRATEGY_REGISTRY.update({
+            "scale_up": K3sScaleUpStrategy(),
+            "rollback_deployment": K3sRollbackStrategy(),
+            "throttle_requests": K3sThrottleStrategy(),
+            "circuit_breaker": K3sCircuitBreakerStrategy(),
+            "flush_cache": K3sFlushCacheStrategy(),
+        })
+        logger.info(
+            "HealingActionExecutor: K3s strategies loaded "
+            "(K3S_ENABLED=true)"
+        )
+    except ImportError as e:
+        logger.warning(
+            "HealingActionExecutor: K3S_ENABLED=true but "
+            "K3s strategy import failed — falling back to stubs",
+            error=str(e),
+        )
+        _STRATEGY_REGISTRY.update({
+            "throttle_requests": StubStrategy("throttle_requests"),
+            "flush_cache": StubStrategy("flush_cache"),
+            "scale_up": StubStrategy("scale_up"),
+            "circuit_breaker": StubStrategy("circuit_breaker"),
+            "rollback_deployment": StubStrategy("rollback_deployment"),
+        })
+else:
+    # Docker Compose mode — stubs for all K3s actions
+    # These return status="failed" so the verification worker
+    # escalates after max retries. This is the existing behavior.
+    _STRATEGY_REGISTRY.update({
+        "throttle_requests": StubStrategy("throttle_requests"),
+        "flush_cache": StubStrategy("flush_cache"),
+        "scale_up": StubStrategy("scale_up"),
+        "circuit_breaker": StubStrategy("circuit_breaker"),
+        "rollback_deployment": StubStrategy("rollback_deployment"),
+    })
 
 
 class HealingActionExecutor:

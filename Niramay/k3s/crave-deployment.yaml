@@ -1,0 +1,92 @@
+---
+# Crave Backend — K3s Deployment
+#
+# This is the target that Niramay's K3s healing strategies act on.
+# The Deployment name "crave-backend" must match K3S_CRAVE_DEPLOYMENT_NAME
+# in Niramay's config.py.
+#
+# imagePullPolicy: Never — K3s uses locally imported images.
+# Import with: docker save crave-backend:latest | sudo k3s ctr images import -
+#
+# Apply with: kubectl apply -f k3s/crave-deployment.yaml
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: crave-backend
+  namespace: selfhealing
+  labels:
+    app: crave-backend
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: crave-backend
+  template:
+    metadata:
+      labels:
+        app: crave-backend
+    spec:
+      containers:
+        - name: crave-backend
+          image: crave-backend:latest
+          imagePullPolicy: Never
+          ports:
+            - containerPort: 8000
+          env:  
+            - name: POSTGRES_SERVER
+              value: "172.27.96.1"
+            - name: POSTGRES_PORT
+              value: "5433"
+            - name: POSTGRES_USER
+              value: "postgres"
+            - name: POSTGRES_PASSWORD
+              value: "password"
+            - name: POSTGRES_DB
+              value: "food_delivery"
+            - name: REDIS_HOST
+              value: "172.27.96.1"
+            - name: REDIS_PORT
+              value: "6380"
+            # RabbitMQ — resolved by k3s/docker-compose-bridge.yaml
+            # to the Docker Compose host IP (YOUR_HOST_IP)
+            - name: RABBITMQ_HOST
+              value: "172.27.96.1"
+            - name: RABBITMQ_PORT
+              value: "5672"
+            - name: RABBITMQ_USER
+              value: "guest"
+            - name: RABBITMQ_PASSWORD
+              value: "guest"
+            # Failure simulator — enabled so Niramay has something to heal
+            - name: FAILURE_SIMULATOR_ENABLED
+              value: "true"
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 10
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 15
+            periodSeconds: 10
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: crave-backend
+  namespace: selfhealing
+  labels:
+    app: crave-backend
+spec:
+  type: ClusterIP
+  selector:
+    app: crave-backend
+  ports:
+    - port: 8000
+      targetPort: 8000
+      protocol: TCP

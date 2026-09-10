@@ -9,9 +9,26 @@
  * Node states: idle | active (pulse) | completed (✓) | failed (✕)
  */
 
+import { useState, useEffect, useRef } from 'react';
 import { usePipelineEvents } from '../hooks/usePipelineEvents';
 import type { NodeState } from '../hooks/usePipelineEvents';
 import type { PipelineEvent } from '../designSystem';
+
+// Mirror of backend SETTLING_WINDOWS in verification_worker.py
+const SETTLING_WINDOWS: Record<string, number> = {
+  restart_service:      45,
+  throttle_requests:    15,
+  flush_cache:          10,
+  scale_up:             30,
+  circuit_breaker:      20,
+  rollback_deployment:  60,
+  escalate_only:         0,
+  none:                  0,
+};
+const DEFAULT_SETTLING_WINDOW = 15;
+
+// Mirror of COOLDOWN_DURATION_SECONDS in dispatcher/worker.py
+const COOLDOWN_DURATION_S = 90;
 
 const PIPELINE_NODES = ['Ingestion', 'Detection', 'Analysis', 'Healing', 'Verification'];
 
@@ -60,17 +77,79 @@ function formatEventTime(ts: string): string {
   catch { return ts; }
 }
 
+/** Seconds remaining for the current timed stage, or null if not applicable. */
+function computeRemaining(
+  currentStage: string | null,
+  stageTimestamp: string | null,
+  stageHealingAction: string | null,
+): { remaining: number; total: number; forNode: 'Healing' | 'Verification' } | null {
+  if (!stageTimestamp) return null;
+
+  const elapsed = (Date.now() - new Date(stageTimestamp).getTime()) / 1000;
+
+  if (currentStage === 'stage_5_cooldown') {
+    return {
+      remaining: Math.max(0, Math.ceil(COOLDOWN_DURATION_S - elapsed)),
+      total: COOLDOWN_DURATION_S,
+      forNode: 'Healing',
+    };
+  }
+
+  if (currentStage === 'stage_6_verification_running') {
+    const total = SETTLING_WINDOWS[stageHealingAction ?? ''] ?? DEFAULT_SETTLING_WINDOW;
+    return {
+      remaining: Math.max(0, Math.ceil(total - elapsed)),
+      total,
+      forNode: 'Verification',
+    };
+  }
+
+  return null;
+}
+
 export default function PipelineProgressBar() {
-  const { events, currentStageLabel, nodeStates } = usePipelineEvents(true);
+  const { events, currentStage, currentStageLabel, nodeStates, stageTimestamp, stageHealingAction, refetch } =
+    usePipelineEvents(true);
+  const [eventsExpanded, setEventsExpanded] = useState(false);
+
+  // Tick every second so we recompute remaining time without storing it in state
+  const [, setTick] = useState(0);
+  const tickRef = useRef<ReturnType<typeof setInterval>>();
+  // Track previous remaining to detect the 0-crossing and trigger an immediate refetch
+  const prevRemainingRef = useRef<number | null>(null);
+
+  const isTimedStage =
+    currentStage === 'stage_5_cooldown' || currentStage === 'stage_6_verification_running';
+
+  useEffect(() => {
+    if (isTimedStage && stageTimestamp) {
+      tickRef.current = setInterval(() => setTick(t => t + 1), 1000);
+    } else {
+      clearInterval(tickRef.current);
+      prevRemainingRef.current = null;
+    }
+    return () => clearInterval(tickRef.current);
+  }, [isTimedStage, stageTimestamp]);
+
+  const timerInfo = computeRemaining(currentStage, stageTimestamp, stageHealingAction);
+
+  // The moment the countdown crosses from 1→0, trigger an immediate backend poll
+  // so confirmation arrives as fast as possible instead of waiting up to 1s more.
+  const currentRemaining = timerInfo?.remaining ?? null;
+  if (prevRemainingRef.current !== null && prevRemainingRef.current > 0 && currentRemaining === 0) {
+    refetch();
+  }
+  prevRemainingRef.current = currentRemaining;
 
   return (
-    <div style={{
-      background: 'var(--color-bg-secondary)',
-      border: '1px solid var(--color-border-subtle)',
-      borderRadius: 'var(--radius-lg)',
-      padding: 'var(--space-5) var(--space-6)',
-      marginBottom: 'var(--space-8)',
-    }}
+    <div
+      style={{
+        background: 'var(--color-bg-secondary)',
+        border: '1px solid var(--color-border-subtle)',
+        borderRadius: 'var(--radius-lg)',
+        padding: 'var(--space-5) var(--space-6)',
+        marginBottom: 'var(--space-8)',
+      }}
       role="status"
       aria-label="Pipeline stage progress"
     >
@@ -82,11 +161,11 @@ export default function PipelineProgressBar() {
         <span style={{
           fontSize: 10, padding: '2px 10px',
           borderRadius: 'var(--radius-full)',
-          background: currentStageLabel === 'Idle'
+          background: currentStageLabel === 'Waiting'
             ? 'var(--color-accent-tertiary)'
             : 'rgba(212,132,94,0.1)',
-          border: `1px solid ${currentStageLabel === 'Idle' ? 'var(--color-border-subtle)' : 'rgba(212,132,94,0.25)'}`,
-          color: currentStageLabel === 'Idle' ? 'var(--color-text-tertiary)' : 'var(--color-accent-primary)',
+          border: `1px solid ${currentStageLabel === 'Waiting' ? 'var(--color-border-subtle)' : 'rgba(212,132,94,0.25)'}`,
+          color: currentStageLabel === 'Waiting' ? 'var(--color-text-tertiary)' : 'var(--color-accent-primary)',
           fontWeight: 600,
           letterSpacing: 'var(--tracking-wider)',
         }}>
@@ -96,58 +175,142 @@ export default function PipelineProgressBar() {
 
       {/* Node bar */}
       <div style={{ display: 'flex', alignItems: 'center', marginBottom: 'var(--space-4)' }}>
-        {nodeStates.map((node, idx) => (
-          <div key={node.label} style={{ display: 'flex', alignItems: 'center', flex: idx < PIPELINE_NODES.length - 1 ? 1 : undefined }}>
-            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4 }}>
-              <NodeIcon state={node.state} />
-              <span style={{
-                fontSize: 10, whiteSpace: 'nowrap',
-                color: node.state !== 'idle' ? 'var(--color-text-primary)' : 'var(--color-text-tertiary)',
-                fontWeight: node.state === 'active' ? 600 : 400,
-                letterSpacing: 'var(--tracking-wider)',
-                textTransform: 'uppercase',
-                transition: 'color 300ms',
-              }}>
-                {node.label}
-              </span>
+        {nodeStates.map((node, idx) => {
+          const isTimerNode = timerInfo?.forNode === node.label;
+          const remaining = isTimerNode ? timerInfo!.remaining : null;
+
+          // Sub-label priority: active timer → completed timestamp
+          const subLabel = (() => {
+            if (isTimerNode && remaining !== null) {
+              if (remaining === 0) {
+                return (
+                  <span style={{
+                    fontSize: 9, whiteSpace: 'nowrap',
+                    color: 'var(--color-status-info)',
+                    fontFamily: 'var(--font-mono)',
+                    marginTop: -2,
+                    animation: 'niramayPulse 1.2s ease-in-out infinite',
+                  }}>
+                    confirming…
+                  </span>
+                );
+              }
+              const color = node.label === 'Healing'
+                ? 'var(--color-status-info)'
+                : 'var(--color-status-warning)';
+              return (
+                <span style={{
+                  fontSize: 9, whiteSpace: 'nowrap',
+                  color,
+                  fontFamily: 'var(--font-mono)',
+                  fontVariantNumeric: 'tabular-nums',
+                  marginTop: -2,
+                }}>
+                  {remaining}s remaining
+                </span>
+              );
+            }
+            if (node.timestamp) {
+              return (
+                <span style={{
+                  fontSize: 9, whiteSpace: 'nowrap',
+                  color: 'var(--color-text-tertiary)',
+                  fontFamily: 'var(--font-mono)',
+                  marginTop: -2,
+                }}>
+                  {formatEventTime(node.timestamp)}
+                </span>
+              );
+            }
+            return null;
+          })();
+
+          return (
+            <div key={node.label} style={{ display: 'flex', alignItems: 'center', flex: idx < PIPELINE_NODES.length - 1 ? 1 : undefined }}>
+              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4 }}>
+                <NodeIcon state={node.state} />
+                <span style={{
+                  fontSize: 10, whiteSpace: 'nowrap',
+                  color: node.state !== 'idle' ? 'var(--color-text-primary)' : 'var(--color-text-tertiary)',
+                  fontWeight: node.state === 'active' ? 600 : 400,
+                  letterSpacing: 'var(--tracking-wider)',
+                  textTransform: 'uppercase',
+                  transition: 'color 300ms',
+                }}>
+                  {node.label}
+                </span>
+                {subLabel}
+              </div>
+              {idx < PIPELINE_NODES.length - 1 && (
+                <div style={{
+                  flex: 1,
+                  height: 1,
+                  marginBottom: 14,
+                  background: node.state === 'completed' ? 'var(--color-status-success)' : 'var(--color-border-subtle)',
+                  transition: 'background 300ms',
+                }} />
+              )}
             </div>
-            {idx < PIPELINE_NODES.length - 1 && (
-              <div style={{
-                flex: 1,
-                height: 1,
-                marginBottom: 14,
-                background: node.state === 'completed' ? 'var(--color-status-success)' : 'var(--color-border-subtle)',
-                transition: 'background 300ms',
-              }} />
-            )}
-          </div>
-        ))}
+          );
+        })}
       </div>
 
-      {/* Live event feed */}
-      <ol
-        aria-live="polite"
-        aria-label="Pipeline events"
-        style={{ margin: 0, padding: 0, listStyle: 'none', display: 'flex', flexDirection: 'column', gap: 2 }}
+      {/* Live event feed — collapsible */}
+      <button
+        onClick={() => setEventsExpanded(v => !v)}
+        aria-expanded={eventsExpanded}
+        aria-controls="pipeline-events-list"
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 6,
+          background: 'none',
+          border: 'none',
+          padding: '2px 0',
+          cursor: 'pointer',
+          color: 'var(--color-text-tertiary)',
+          fontSize: 10,
+          letterSpacing: 'var(--tracking-wider)',
+          textTransform: 'uppercase',
+          marginBottom: eventsExpanded ? 'var(--space-2)' : 0,
+        }}
       >
-        {events.length === 0 ? (
-          <li style={{ fontSize: 'var(--text-xs)', color: 'var(--color-text-tertiary)', fontStyle: 'italic' }}>
-            No events yet — waiting for pipeline activity.
-          </li>
-        ) : (
-          events.slice(0, 8).map((ev, i) => (
-            <li key={`${ev.timestamp}-${i}`} style={{
-              fontSize: 'var(--text-xs)',
-              color: eventColor(ev),
-              fontFamily: 'var(--font-mono)',
-              lineHeight: 'var(--leading-normal)',
-            }}>
-              <span style={{ color: 'var(--color-text-tertiary)', marginRight: 8 }}>{formatEventTime(ev.timestamp)}</span>
-              {ev.message || `${ev.event_type} — ${ev.stage}`}
+        <svg
+          width="10" height="10" viewBox="0 0 10 10" fill="none"
+          stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"
+          style={{ transition: 'transform 200ms', transform: eventsExpanded ? 'rotate(180deg)' : 'rotate(0deg)' }}
+        >
+          <path d="M2 3.5l3 3 3-3" />
+        </svg>
+        Events {events.length > 0 ? `(${Math.min(events.length, 8)})` : ''}
+      </button>
+
+      {eventsExpanded && (
+        <ol
+          id="pipeline-events-list"
+          aria-live="polite"
+          aria-label="Pipeline events"
+          style={{ margin: 0, padding: 0, listStyle: 'none', display: 'flex', flexDirection: 'column', gap: 2 }}
+        >
+          {events.length === 0 ? (
+            <li style={{ fontSize: 'var(--text-xs)', color: 'var(--color-text-tertiary)', fontStyle: 'italic' }}>
+              No events yet — waiting for pipeline activity.
             </li>
-          ))
-        )}
-      </ol>
+          ) : (
+            events.slice(0, 8).map((ev, i) => (
+              <li key={`${ev.timestamp}-${i}`} style={{
+                fontSize: 'var(--text-xs)',
+                color: eventColor(ev),
+                fontFamily: 'var(--font-mono)',
+                lineHeight: 'var(--leading-normal)',
+              }}>
+                <span style={{ color: 'var(--color-text-tertiary)', marginRight: 8 }}>{formatEventTime(ev.timestamp)}</span>
+                {ev.message || `${ev.event_type} — ${ev.stage}`}
+              </li>
+            ))
+          )}
+        </ol>
+      )}
 
       <style>{`
         @keyframes niramayPulse {

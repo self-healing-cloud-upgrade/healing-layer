@@ -442,22 +442,43 @@ class OpenSearchWriter:
         )
 
     def get_logs_after_timestamp(
-        self, service: str, endpoint: str, timestamp: str
+        self,
+        service: Optional[str],
+        endpoint: Optional[str],
+        timestamp: str,
+        service_prefix: Optional[str] = None,
     ) -> List[Dict]:
         """
-        Query crave-normalized-logs for entries from a specific service
-        and endpoint after a given timestamp.
+        Query crave-normalized-logs for entries after a given timestamp.
+
+        Filtering modes:
+            service_prefix — prefix query on service field (e.g. "crave-")
+                             Used after healing a CRAVE service to check
+                             all crave-* endpoints simultaneously.
+            service + endpoint — exact term match (single service/endpoint)
+            timestamp only  — all logs after timestamp (no service filter)
+
         Used by the verification worker to check if anomaly signals
         persist after a healing action.
         """
+        must_clauses: list = [
+            {"range": {"timestamp": {"gt": timestamp}}}
+        ]
+
+        if service_prefix:
+            # Widen to all services matching prefix (e.g. all crave-*)
+            must_clauses.append(
+                {"prefix": {"service": service_prefix}}
+            )
+        elif service:
+            must_clauses.append({"term": {"service": service}})
+            if endpoint:
+                must_clauses.append({"term": {"endpoint": endpoint}})
+
         body = {
             "query": {
                 "bool": {
-                    "must": [
-                        {"term": {"service": service}},
-                        {"term": {"endpoint": endpoint}},
-                        {"range": {"timestamp": {"gt": timestamp}}},
-                    ]
+                    "must": must_clauses
                 }
             },
             "sort": [{"timestamp": {"order": "asc"}}],
@@ -496,6 +517,37 @@ class OpenSearchWriter:
                 error=str(e)
             )
             return []
+
+    def get_healed_reports(self, limit: int = 50) -> List[Dict]:
+        """Fetch the most recent healed reports from crave-healed-reports."""
+        query = {
+            "query": {"match_all": {}},
+            "sort": [{"healed_at": {"order": "desc"}}]
+        }
+        return self._search(
+            settings.OPENSEARCH_INDEX_HEALED, query, size=limit
+        )
+
+    def get_anomaly_records(
+        self, limit: int = 50, severity: Optional[str] = None
+    ) -> List[Dict]:
+        """
+        Fetch anomaly records from crave-anomaly-records.
+        Optionally filter by severity.
+        """
+        if severity:
+            query: Dict[str, Any] = {
+                "query": {"term": {"severity": severity}},
+                "sort": [{"timestamp": {"order": "desc"}}]
+            }
+        else:
+            query = {
+                "query": {"match_all": {}},
+                "sort": [{"timestamp": {"order": "desc"}}]
+            }
+        return self._search(
+            settings.OPENSEARCH_INDEX_ANOMALIES, query, size=limit
+        )
 
 
 # Singleton instance

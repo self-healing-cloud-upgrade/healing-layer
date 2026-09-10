@@ -220,6 +220,12 @@ export default function DetectionAlerts({
                     {a.method}
                   </span>
 
+                  {a.failure_tag && a.failure_tag !== 'none' && (
+                    <span className="badge badge-accent" style={{ fontSize: 8, padding: '0 5px', letterSpacing: '0.02em' }}>
+                      {a.failure_tag.replace(/_/g, ' ')}
+                    </span>
+                  )}
+
                   {a.requires_llm && (
                     <span className="badge badge-accent" style={{ fontSize: 8, padding: '0 4px' }}>AI</span>
                   )}

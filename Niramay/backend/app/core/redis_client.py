@@ -45,3 +45,19 @@ try:
 except Exception as e:
     logger.warning("Redis client connection failed on init (will retry later)", error=str(e))
     redis_client = get_sync_redis()  # Create anyway, will fail on first use
+
+def push_pipeline_event(event_type: str, stage: str, message: str) -> None:
+    """Helper to push pipeline events to Redis list for the frontend."""
+    from datetime import datetime, timezone
+    import json
+    try:
+        event = {
+            "event_type": event_type,
+            "stage": stage,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "message": message,
+        }
+        redis_client.lpush("pipeline:events", json.dumps(event))
+        redis_client.ltrim("pipeline:events", 0, 99)
+    except Exception as e:
+        logger.warning("Failed to push pipeline event", error=str(e))

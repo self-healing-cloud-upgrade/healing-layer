@@ -16,6 +16,7 @@ import type { GenerateReportPayload } from '../hooks/useReports';
 import type { Report } from '../designSystem';
 import { timeAgo } from '../designSystem';
 import { useToast } from '../components/ToastNotification';
+import { useTheme } from '../designSystem';
 
 const REPORT_TYPES = [
   { value: 'incident_summary', label: 'Incident Summary' },
@@ -41,6 +42,7 @@ function StatusBadge({ status }: { status: Report['status'] }) {
 
 export default function ReportsPage() {
   const { addToast } = useToast();
+  const { isDark, toggleTheme } = useTheme();
   const { reports, generating, generateError, generate, download } = useReports();
 
   const [form, setForm] = useState<GenerateReportPayload>({
@@ -83,10 +85,28 @@ export default function ReportsPage() {
           <span style={{ color: 'var(--color-border-subtle)', fontSize: 14 }}>/</span>
           <span style={{ fontSize: 'var(--text-sm)', color: 'var(--color-accent-primary)', fontWeight: 600 }}>Reports</span>
         </div>
-        <div style={{ display: 'flex', gap: 'var(--space-4)', fontSize: 'var(--text-sm)' }}>
+        <div style={{ display: 'flex', gap: 'var(--space-4)', fontSize: 'var(--text-sm)', alignItems: 'center' }}>
           <Link to="/dashboard" style={{ color: 'var(--color-text-secondary)', textDecoration: 'none' }}>Dashboard</Link>
           <Link to="/visualizer" style={{ color: 'var(--color-text-secondary)', textDecoration: 'none' }}>Visualizer</Link>
           <Link to="/reports" style={{ color: 'var(--color-accent-primary)', textDecoration: 'none', fontWeight: 600 }}>Reports</Link>
+          <div style={{ borderLeft: '1px solid var(--color-border-subtle)', paddingLeft: 'var(--space-4)', marginLeft: 'var(--space-2)' }}>
+            <button
+              onClick={toggleTheme}
+              className="btn-icon"
+              aria-label={isDark ? 'Switch to light mode' : 'Switch to dark mode'}
+            >
+              {isDark ? (
+                <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round">
+                  <circle cx="8" cy="8" r="3.5" />
+                  <path d="M8 1v1.5M8 13.5V15M1 8h1.5M13.5 8H15M3.05 3.05l1.06 1.06M11.89 11.89l1.06 1.06M3.05 12.95l1.06-1.06M11.89 4.11l1.06-1.06" />
+                </svg>
+              ) : (
+                <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round">
+                  <path d="M13.5 8.5a5.5 5.5 0 0 1-6-6A5.5 5.5 0 1 0 13.5 8.5Z" />
+                </svg>
+              )}
+            </button>
+          </div>
         </div>
       </nav>
 
@@ -188,7 +208,7 @@ export default function ReportsPage() {
                         fontSize: 'var(--text-xs)', fontWeight: 600,
                         cursor: 'pointer', textTransform: 'capitalize',
                         background: form.severities.includes(sev) ? 'var(--color-accent-primary)' : 'var(--color-bg-sunken)',
-                        color: form.severities.includes(sev) ? '#fff' : 'var(--color-text-secondary)',
+                        color: form.severities.includes(sev) ? 'var(--color-text-inverse)' : 'var(--color-text-secondary)',
                         border: `1px solid ${form.severities.includes(sev) ? 'var(--color-accent-primary)' : 'var(--color-border-subtle)'}`,
                         transition: 'all 150ms',
                       }}
@@ -214,7 +234,7 @@ export default function ReportsPage() {
                       style={{
                         padding: '5px 16px',
                         background: form.format === opt.value ? 'var(--color-accent-primary)' : 'transparent',
-                        color: form.format === opt.value ? '#fff' : 'var(--color-text-secondary)',
+                        color: form.format === opt.value ? 'var(--color-text-inverse)' : 'var(--color-text-secondary)',
                         border: 'none', fontSize: 'var(--text-xs)', fontWeight: 600, cursor: 'pointer',
                         transition: 'all 150ms',
                       }}
@@ -234,7 +254,7 @@ export default function ReportsPage() {
                 style={{
                   width: '100%', padding: '10px',
                   background: generating ? 'var(--color-bg-sunken)' : 'var(--color-accent-primary)',
-                  color: generating ? 'var(--color-text-tertiary)' : '#fff',
+                  color: generating ? 'var(--color-text-tertiary)' : 'var(--color-text-inverse)',
                   border: 'none', borderRadius: 'var(--radius-md)',
                   fontSize: 'var(--text-sm)', fontWeight: 700,
                   cursor: generating ? 'wait' : 'pointer',

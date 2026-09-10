@@ -101,16 +101,26 @@ async def _handle_analyser(r, detection_result: dict):
 
     # -- 0. Update pipeline stage: causal engine starting --
     try:
+        stage_val = "stage_3_causal_engine_running"
+        msg_val = "AI causal analysis running"
+        timestamp_val = datetime.now(timezone.utc).isoformat()
         await r.set(
             settings.PIPELINE_STAGE_KEY,
             json.dumps({
-                "stage": "stage_3_causal_engine_running",
-                "timestamp": datetime.now(
-                    timezone.utc).isoformat(),
-                "message": "AI causal analysis running",
+                "stage": stage_val,
+                "timestamp": timestamp_val,
+                "message": msg_val,
                 "detection_id": detection_id,
             })
         )
+        event = {
+            "event_type": "analysis_started",
+            "stage": stage_val,
+            "timestamp": timestamp_val,
+            "message": msg_val,
+        }
+        await r.lpush("pipeline:events", json.dumps(event))
+        await r.ltrim("pipeline:events", 0, 99)
     except Exception:
         pass
 
@@ -221,13 +231,15 @@ async def _handle_analyser(r, detection_result: dict):
 
     # -- 6. Update pipeline stage: analysis complete --
     try:
+        stage_val = "stage_3_complete"
+        msg_val = "Analysis complete, healing initiated"
+        timestamp_val = datetime.now(timezone.utc).isoformat()
         await r.set(
             settings.PIPELINE_STAGE_KEY,
             json.dumps({
-                "stage": "stage_3_complete",
-                "timestamp": datetime.now(
-                    timezone.utc).isoformat(),
-                "message": "Analysis complete, healing initiated",
+                "stage": stage_val,
+                "timestamp": timestamp_val,
+                "message": msg_val,
                 "recommended_action": ai_analysis.get(
                     "suggested_action"),
                 "service": detection_result.get("service"),
@@ -235,6 +247,14 @@ async def _handle_analyser(r, detection_result: dict):
                     "failure_tag", "none"),
             })
         )
+        event = {
+            "event_type": "analysis_complete",
+            "stage": stage_val,
+            "timestamp": timestamp_val,
+            "message": msg_val,
+        }
+        await r.lpush("pipeline:events", json.dumps(event))
+        await r.ltrim("pipeline:events", 0, 99)
     except Exception:
         pass
 

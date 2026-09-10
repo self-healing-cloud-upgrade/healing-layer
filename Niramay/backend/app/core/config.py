@@ -55,6 +55,48 @@ class Settings(BaseSettings):
     CRAVE_DEVELOPER_EMAIL: str = "developer@example.com"
     CRAVE_DEVELOPER_PASSWORD: str = "developer123"
 
+    # ── K3s Cluster Settings ──────────────────────────────────────────────
+    # K3s is a lightweight Kubernetes distribution.
+    # All K3s healing strategies are DISABLED when K3S_ENABLED=false.
+    # Set K3S_ENABLED=true only when running inside or alongside a K3s cluster.
+    # Docker Compose + test suite always use K3S_ENABLED=false (default).
+    K3S_ENABLED: bool = False
+
+    # Namespace where Crave and Niramay Deployments live in K3s
+    K3S_NAMESPACE: str = "selfhealing"
+
+    # Name of the Crave backend Deployment in K3s
+    # Must match metadata.name in k3s/crave-deployment.yaml
+    K3S_CRAVE_DEPLOYMENT_NAME: str = "crave-backend"
+
+    # True  = load in-cluster service account (Niramay running as a K3s pod)
+    # False = load ~/.kube/config (local WSL2 dev with K3s installed)
+    K3S_IN_CLUSTER: bool = True
+
+    # Maximum replicas scale_up is allowed to set
+    K3S_MAX_REPLICAS: int = 5
+
+    # How many seconds circuit_breaker holds Deployment at 0 replicas
+    K3S_CIRCUIT_BREAKER_DURATION_SECONDS: int = 30
+
+    # Label selector to find the CRAVE Redis pod for flush_cache exec
+    # Must match labels in k3s/crave-deployment.yaml
+    # IMPORTANT: targets CRAVE's Redis, NOT Niramay's Redis
+    K3S_CRAVE_REDIS_POD_LABEL: str = "app=crave-redis"
+
+    # CRAVE internal K3s service URL
+    # Used by Component A to call heal endpoint inside the cluster
+    CRAVE_K3S_URL: str = (
+        "http://crave-backend.selfhealing.svc.cluster.local:8000"
+    )
+
+    # Healing enabled key in Redis
+    HEALING_ENABLED_KEY: str = "niramay:healing:enabled"
+
+    # Whether to auto-enable healing on startup
+    # Keep False for tests, set True in K3s deployment
+    HEALING_AUTO_ENABLE_ON_STARTUP: bool = False
+
     # Email Escalation (SMTP)
     # Set SMTP_ENABLED=True and configure credentials to
     # receive email alerts when healing fails after 3 attempts
@@ -105,8 +147,8 @@ class Settings(BaseSettings):
     RATE_BASED_WINDOW_SECONDS: int = 60      # Rolling window size
 
     # Stage 2 — Silence Detection Engine (Redis-backed)
-    SILENCE_THRESHOLD_SECONDS: int = 120     # Silence gap before firing
-    SILENCE_CHECK_INTERVAL_SECONDS: int = 30 # Background check frequency
+    SILENCE_THRESHOLD_SECONDS: int = 600     # Silence gap before firing
+    SILENCE_CHECK_INTERVAL_SECONDS: int = 60 # Background check frequency
 
     # Stage 2 — Integer-based anomaly score threshold (for DetectionService)
     DETECTION_ANOMALY_SCORE_THRESHOLD: int = 3

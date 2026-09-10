@@ -53,7 +53,7 @@ export default function HealingModeModal() {
 
   const isOpen =
     !dismissed &&
-    pipelineStage?.stage === 'stage_4_healing_executing' &&
+    (pipelineStage?.stage === 'stage_4_healing_executing' || pipelineStage?.stage === 'stage_2_complete') &&
     healingMode.mode === null;
 
   // Save focus when opening, restore when closing

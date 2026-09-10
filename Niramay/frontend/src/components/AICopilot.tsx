@@ -168,7 +168,9 @@ export default function AICopilot({ anomalies = [] }: { anomalies?: AnomalyLog[]
           }}>
             AI RCA (Ollama)
           </div>
-          {anomalies.filter(a => a.ai_analysis).slice(0, 5).map(a => (
+          {anomalies.filter(a => a.ai_analysis).slice(0, 5).map(a => {
+            const ai = a.ai_analysis!;
+            return (
             <motion.div
               key={a.detection_id}
               className="row-interactive"
@@ -187,9 +189,9 @@ export default function AICopilot({ anomalies = [] }: { anomalies?: AnomalyLog[]
                 gap: 'var(--space-2)',
                 marginBottom: 'var(--space-1)',
               }}>
-                <span className={`dot dot-${a.ai_analysis.confidence > 0.8 ? 'success' : 'warning'}`} />
-                <span className={`badge ${a.ai_analysis.confidence > 0.8 ? 'badge-success' : 'badge-warning'}`}>
-                  {Math.round(a.ai_analysis.confidence * 100)}% Conf
+                <span className={`dot dot-${ai.confidence > 0.8 ? 'success' : 'warning'}`} />
+                <span className={`badge ${ai.confidence > 0.8 ? 'badge-success' : 'badge-warning'}`}>
+                  {Math.round(ai.confidence * 100)}% Conf
                 </span>
                 <span style={{ fontSize: 10, color: 'var(--color-text-tertiary)', fontFamily: 'var(--font-mono)' }}>
                   {a.endpoint}
@@ -202,7 +204,7 @@ export default function AICopilot({ anomalies = [] }: { anomalies?: AnomalyLog[]
                 lineHeight: 'var(--leading-normal)',
                 paddingLeft: 'var(--space-4)',
               }}>
-                {a.ai_analysis.root_cause}
+                {ai.root_cause}
               </div>
 
               {/* Progressive disclosure */}
@@ -213,7 +215,7 @@ export default function AICopilot({ anomalies = [] }: { anomalies?: AnomalyLog[]
                   lineHeight: 'var(--leading-normal)',
                   marginBottom: 'var(--space-2)',
                 }}>
-                  LLM Suggestion: Apply {a.ai_analysis.suggested_action} to mitigate further degradation.
+                  LLM Suggestion: Apply {ai.suggested_action} to mitigate further degradation.
                 </div>
                 <button
                   className="btn-ghost ripple-host"
@@ -223,11 +225,12 @@ export default function AICopilot({ anomalies = [] }: { anomalies?: AnomalyLog[]
                     fontSize: 'var(--text-xs)',
                   }}
                 >
-                  Execute {a.ai_analysis.suggested_action}
+                  Execute {ai.suggested_action}
                 </button>
               </div>
             </motion.div>
-          ))}
+            );
+          })}
           {anomalies.filter(a => a.ai_analysis).length === 0 && (
             <div style={{ fontSize: 'var(--text-xs)', color: 'var(--color-text-tertiary)', paddingLeft: 'var(--space-4)' }}>
               No critical RCA reports at this time.
