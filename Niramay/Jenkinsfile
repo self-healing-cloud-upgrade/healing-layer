@@ -274,7 +274,6 @@ pipeline {
                         --tb=short \\
                         --junit-xml=${TEST_RESULTS_DIR}/junit.xml \\
                         --html=${TEST_RESULTS_DIR}/report.html \\
-                        --self-contained-html \\
                         -p no:cacheprovider \\
                         2>&1 | tee ${TEST_RESULTS_DIR}/pytest_output.txt
                 """

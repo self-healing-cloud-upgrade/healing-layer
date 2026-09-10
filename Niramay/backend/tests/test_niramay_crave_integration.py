@@ -47,7 +47,7 @@ import requests
 
 BASE_URL = os.environ.get("BASE_URL", "http://localhost:8000").rstrip("/")
 CRAVE_URL = os.environ.get("CRAVE_URL", "http://localhost:8001").rstrip("/")
-CRAVE_DEV_TOKEN = os.environ.get("CRAVE_DEV_TOKEN", "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiI1IiwiZW1haWwiOiJkZXZlbG9wZXJAZXhhbXBsZS5jb20iLCJyb2xlIjoiZGV2ZWxvcGVyIiwiZXhwIjoxNzc3ODAyMjE5LCJ0eXBlIjoiYWNjZXNzIn0.JPPhmGb4QeAzOJcG_IFrmwFi7bz01HUGPagCGgOOqzo")
+CRAVE_DEV_TOKEN = os.environ.get("CRAVE_DEV_TOKEN", "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiI1IiwiZW1haWwiOiJkZXZlbG9wZXJAZXhhbXBsZS5jb20iLCJyb2xlIjoiZGV2ZWxvcGVyIiwiZXhwIjoxNzc3OTkwNDE3LCJ0eXBlIjoiYWNjZXNzIn0.T5XAwR5baEXTHgDshDgMEA0V-FFUXJLCuxpjBp__cYg")
 
 TRAFFIC_BURST_COUNT         = int(os.environ.get("TRAFFIC_BURST_COUNT", "20"))
 RABBITMQ_SETTLE_SECONDS     = int(os.environ.get("RABBITMQ_SETTLE_SECONDS", "5"))
@@ -601,8 +601,13 @@ class TestStage5IncidentReports:
         data = requests.get(f"{BASE_URL}/api/v1/incident/reports", timeout=10).json()
         assert isinstance(data, list) and len(data) > 0
         entry = data[0]
-        # healing_status is set at the report level (Analyser always sets "pending")
-        healing_status = (entry.get("heal_data", {}).get("status") or entry.get("healing_status") or entry.get("status"))
+        # healing_status lives inside machine_alert (set by generate_machine_alert)
+        # The incident report has no 'heal_data' key — heal_data is the internal
+        # arg used by generate_incident_report(), not stored in the output dict.
+        healing_status = (
+            entry.get("machine_alert", {}).get("healing_status")
+            or entry.get("healing_status")
+        )
         assert healing_status == "pending", (
             f"Expected healing_status='pending', got: '{healing_status}'"
         )
@@ -612,7 +617,14 @@ class TestStage5IncidentReports:
         data = requests.get(f"{BASE_URL}/api/v1/incident/reports", timeout=10).json()
         assert isinstance(data, list) and len(data) > 0
         entry = data[0]
-        vs = (entry.get("heal_data", {}).get("verification_status") or entry.get("verification_status"))
+        # verification_status is stored at the top level of the incident report
+        # dict (copied from machine_alert by generate_incident_report). It is also
+        # accessible via machine_alert.verification_status. There is no 'heal_data'
+        # key in the stored incident report dict.
+        vs = (
+            entry.get("verification_status")
+            or entry.get("machine_alert", {}).get("verification_status")
+        )
         assert vs == "PENDING", (
             f"Expected verification_status='PENDING', got: '{vs}'"
         )
@@ -713,13 +725,15 @@ class TestStage7HealingActions:
         When healing:enabled=1 and strategy runs: status='failed' (stubs) or
           'success' (restart_service if Docker socket available)
         All are acceptable — we validate the field exists with a known value.
+        Note: 'pending' is never written to healing:actions — it is only the
+        initial value in machine_alert.healing_status before the dispatcher acts.
         """
         data = requests.get(f"{BASE_URL}/api/v1/healing/actions", timeout=10).json()
         data = data.get("actions", data) if isinstance(data, dict) else data
         if len(data) == 0:
             pytest.skip("No healing records — see test above.")
 
-        valid_statuses = {"skipped", "pending", "failed", "success"}
+        valid_statuses = {"skipped", "failed", "success"}
         for entry in data[:5]:
             status = entry.get("status")
             assert status in valid_statuses, (
